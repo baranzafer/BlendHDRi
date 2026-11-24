@@ -27,6 +27,7 @@ COL_ACTIVE = (1.0, 0.55, 0.1, 1.0)
 COL_NORMAL = (1.0, 1.0, 1.0, 0.75)
 COL_HOVER = (0.5, 0.85, 1.0, 0.95)
 COL_DISABLED = (0.5, 0.5, 0.5, 0.5)
+COL_AREA = (0.4, 1.0, 0.5, 0.9)
 
 HELP = ("HDRI Studio  |  LMB: select / drag   Ctrl+LMB: add light   "
         "Ctrl+Wheel: size   Shift+Wheel: rotate   Alt+Wheel: intensity   "
@@ -108,6 +109,8 @@ def draw_overlay():
                 col, width = COL_HOVER, 2.0
             elif not light.enabled:
                 col, width = COL_DISABLED, 1.0
+            elif light.output == 'AREA':
+                col, width = COL_AREA, 1.2
             else:
                 col, width = COL_NORMAL, 1.2
             segs = _uv_segments(v2d, render.outline_uv(data))
@@ -118,7 +121,14 @@ def draw_overlay():
             if s.show_labels:
                 blf.color(font, *col)
                 blf.position(font, cx + 8, cy + 6, 0)
-                blf.draw(font, light.name if light.enabled else light.name + " (off)")
+                label = light.name
+                if not light.enabled:
+                    label += " (off)"
+                elif light.output == 'AREA':
+                    label += " (area)"
+                elif light.output == 'BOTH':
+                    label += " (+area)"
+                blf.draw(font, label)
 
     if state["editing"]:
         blf.color(font, 1.0, 0.8, 0.4, 1.0)

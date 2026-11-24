@@ -91,7 +91,7 @@ class LightData:
     __slots__ = (
         "shape", "blend", "lon", "lat", "roll", "width", "height",
         "softness", "roundness", "ring_inner", "falloff", "gradient",
-        "rgb", "opacity",
+        "rgb", "opacity", "tex",
     )
 
     def __init__(self, **kw):
@@ -109,6 +109,7 @@ class LightData:
         self.gradient = kw.get("gradient", 0.0)
         self.rgb = kw.get("rgb", (1.0, 1.0, 1.0))
         self.opacity = kw.get("opacity", 1.0)
+        self.tex = kw.get("tex", None)  # (h, w, 4) float array or None
 
     @classmethod
     def from_prop(cls, p):
@@ -167,8 +168,30 @@ def _smooth(edge0, edge1, x):
     return t * t * (3.0 - 2.0 * t)
 
 
+def sample_texture(tex, nx, ny):
+    """Bilinear sample of ``tex`` at light-local coordinates.
+
+    The texture covers the light's bounding box; u runs from the light's
+    left to right as seen from inside the sphere (i.e. on the canvas).
+    """
+    th, tw = tex.shape[:2]
+    u = np.clip(0.5 - nx * 0.5, 0.0, 1.0)
+    v = np.clip(0.5 + ny * 0.5, 0.0, 1.0)
+    fx = u * (tw - 1)
+    fy = v * (th - 1)
+    x0 = np.floor(fx).astype(np.int64)
+    y0 = np.floor(fy).astype(np.int64)
+    x1 = np.minimum(x0 + 1, tw - 1)
+    y1 = np.minimum(y0 + 1, th - 1)
+    wx = (fx - x0)[..., None]
+    wy = (fy - y0)[..., None]
+    a = tex[y0, x0] * (1 - wx) + tex[y0, x1] * wx
+    b = tex[y1, x0] * (1 - wx) + tex[y1, x1] * wx
+    return a * (1 - wy) + b * wy
+
+
 def light_mask(light, dx, dy, dz):
-    """Return (mask, profile) arrays for the given direction arrays."""
+    """Return (mask, profile, tex_rgb) arrays for the given direction arrays."""
     L, T, B = light_basis(light.lon, light.lat, light.roll)
     dl = dx * L[0] + dy * L[1] + dz * L[2]
     front = dl > 1e-3
@@ -185,6 +208,12 @@ def light_mask(light, dx, dy, dz):
         mask = mask * _smooth(inner - s * 0.5, inner + s * 0.5, r)
     mask = np.where(front, mask, 0.0)
 
+    tex_rgb = None
+    if light.tex is not None:
+        t = sample_texture(light.tex, nx, ny)
+        tex_rgb = t[..., :3]
+        mask = mask * t[..., 3]
+
     profile = None
     if light.falloff > 0.0:
         rr = np.clip(np.sqrt(nx * nx + ny * ny), 0.0, 1.0)
@@ -192,7 +221,7 @@ def light_mask(light, dx, dy, dz):
     if light.gradient != 0.0:
         g = np.clip(1.0 + light.gradient * np.clip(ny, -1.0, 1.0), 0.0, 2.0)
         profile = g if profile is None else profile * g
-    return mask, profile
+    return mask, profile, tex_rgb
 
 
 # ---------------------------------------------------------------------------
@@ -303,10 +332,12 @@ def render(width, height, background, lights, chunk_rows=256):
             dz = np.broadcast_to(np.sin(sub_lat)[:, None], (b - a, width))
             dx = cl * cos_lon[None, :]
             dy = cl * sin_lon[None, :]
-            mask, profile = light_mask(lt, dx, dy, dz)
+            mask, profile, tex_rgb = light_mask(lt, dx, dy, dz)
             if lt.opacity != 1.0:
                 mask = mask * lt.opacity
             col = np.array(lt.rgb, dtype=np.float64)
+            if tex_rgb is not None:
+                col = tex_rgb * col
             region = rgb[a:b]
             if lt.blend == 'ADD':
                 m = mask if profile is None else mask * profile

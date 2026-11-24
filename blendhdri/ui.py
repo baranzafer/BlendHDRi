@@ -12,6 +12,8 @@ class HDRISTUDIO_UL_lights(bpy.types.UIList):
             ic = 'SNAP_FACE'
         else:
             ic = icons.get(item.shape, 'LIGHT')
+        if item.output == 'AREA':
+            ic = 'LIGHT_AREA'
         row.prop(item, "name", text="", emboss=False, icon=ic)
         sub = row.row(align=True)
         sub.prop(item, "intensity", text="", emboss=False)
@@ -114,6 +116,7 @@ class _LightProps(HDRIStudioPanel):
 
         layout.row().prop(l, "shape", expand=True, icon_only=True)
         layout.prop(l, "blend")
+        layout.prop(l, "output")
 
         col = layout.column(align=True)
         col.prop(l, "lon")
@@ -142,6 +145,40 @@ class _LightProps(HDRIStudioPanel):
         if l.blend != 'MULTIPLY':
             layout.prop(l, "intensity")
         layout.prop(l, "opacity")
+
+        col = layout.column()
+        col.prop(l, "use_texture")
+        if l.use_texture:
+            col.template_ID(l, "texture", open="image.open")
+            if l.output != 'HDRI':
+                col.label(text="Textures only affect the HDRI", icon='INFO')
+
+
+class _AreaLights(HDRIStudioPanel):
+    bl_label = "Area Lights"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        s = context.scene.hdri_studio
+        layout.label(text="Turn HDRI lights into real Area lights")
+        col = layout.column(align=True)
+        col.use_property_split = True
+        col.use_property_decorate = False
+        col.prop(s, "area_target")
+        col.prop(s, "area_distance")
+        col.prop(s, "area_power_scale")
+        layout.label(text="Active light:")
+        row = layout.row(align=True)
+        for key, text in (('HDRI', "HDRI"), ('AREA', "Area"), ('BOTH', "Both")):
+            op = row.operator("hdri_studio.set_output", text=text)
+            op.output, op.all_lights = key, False
+        layout.label(text="All lights:")
+        row = layout.row(align=True)
+        for key, text in (('HDRI', "HDRI"), ('AREA', "Area"), ('BOTH', "Both")):
+            op = row.operator("hdri_studio.set_output", text=text)
+            op.output, op.all_lights = key, True
+        layout.operator("hdri_studio.bake_area_lights", icon='UNLINKED')
 
 
 class _Background(HDRIStudioPanel):
@@ -192,7 +229,7 @@ class _Export(HDRIStudioPanel):
         layout.operator("hdri_studio.export", icon='EXPORT')
 
 
-_BASES = (_Main, _Lights, _LightProps, _Background, _Display, _Export)
+_BASES = (_Main, _Lights, _LightProps, _AreaLights, _Background, _Display, _Export)
 
 
 def _make_panels():

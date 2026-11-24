@@ -103,6 +103,25 @@ class HDRIStudioLight(PropertyGroup):
         name="Opacity", default=1.0, min=0.0, max=1.0, subtype='FACTOR',
         update=_changed)
 
+    use_texture: BoolProperty(
+        name="Use Texture", default=False, update=_changed,
+        description="Fill the light with an image (photo of a softbox, window, gobo...)")
+    texture: PointerProperty(
+        name="Texture", type=bpy.types.Image, update=_changed,
+        description="Image stretched over the light. Alpha is used as a mask")
+
+    output: EnumProperty(
+        name="Output", update=_changed, default='HDRI',
+        description="Where this light exists",
+        items=[
+            ('HDRI', "HDRI", "Only in the HDRI (environment)"),
+            ('AREA', "Area Light", "Only as a real Area light object in the scene"),
+            ('BOTH', "Both", "In the HDRI (reflections) and as an Area light"),
+        ])
+    area_object: PointerProperty(
+        name="Area Light", type=bpy.types.Object,
+        description="Area light object driven by this HDRI light")
+
 
 PREVIEW_RES = [
     ('512', "512 x 256", "Fastest"),
@@ -165,6 +184,17 @@ class HDRIStudioSettings(PropertyGroup):
         description="Equirectangular image used as the base of the HDRI")
     bg_rotation: FloatProperty(
         name="Image Rotation", subtype='ANGLE', default=0.0, update=_changed)
+
+    # Area lights -------------------------------------------------------
+    area_target: PointerProperty(
+        name="Target", type=bpy.types.Object, update=_changed,
+        description="Area lights are placed around this object (world origin if empty)")
+    area_distance: FloatProperty(
+        name="Distance", default=5.0, min=0.01, soft_max=50.0, unit='LENGTH',
+        update=_changed, description="Distance of the area lights from the target")
+    area_power_scale: FloatProperty(
+        name="Power Scale", default=1.0, min=0.0, soft_max=10.0, update=_changed,
+        description="Multiplier for the power of generated area lights")
 
     # Canvas overlay -------------------------------------------------------
     show_outlines: BoolProperty(

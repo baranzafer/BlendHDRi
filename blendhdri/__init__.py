@@ -9,7 +9,7 @@ OpenEXR / Radiance HDR.
 bl_info = {
     "name": "BlendHDRi - HDRI Studio",
     "author": "BlendHDRi contributors",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "Image Editor / 3D Viewport > Sidebar > HDRI Studio, Window > HDRI Studio Editor",
     "description": "Build studio lighting HDRIs with softboxes, LightPaint and EXR export",

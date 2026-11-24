@@ -38,6 +38,16 @@ tıklayarak ışığı yansımanın/aydınlatmanın düşeceği yere konumlandı
 - **Canlı dünya**: `HDRI Studio World` otomatik oluşturulur; *Preview in Viewport*
   3B görünümü sahne dünyası ile Material Preview'a alır. Önceki dünyaya tek
   tıkla dönülebilir.
+- **Gerçek alan ışıkları (Area Light)**: her ışığın çıktısı *HDRI*, *Area Light*
+  veya *Both* olabilir. Area ışıkları hedef nesnenin (ya da dünya merkezinin)
+  etrafında, seçilen mesafede, HDRI'deki konum/boyut/renk/güçle senkron tutulur
+  ("HDRI Studio Lights" koleksiyonu). *Detach Area Lights* ile sıradan sahne
+  ışıklarına dönüştürülebilir.
+- **Işık dokusu**: bir ışığın içine görüntü (softbox fotoğrafı, pencere, gobo…)
+  yerleştirin; alfa kanalı maske olarak kullanılır.
+- **Kullanıcı presetleri**: aktif ışığı veya tüm stüdyo kurulumunu kaydedin;
+  `+` ve *Studio Setups* menülerinde "My Lights / My Setups" altında her
+  dosyada kullanılabilir (Blender config klasöründe `blendhdri/presets.json`).
 - **Dışa aktarma**: 1K–8K OpenEXR (32-bit float) veya Radiance HDR;
   isteğe bağlı olarak kaydedilen dosyayı kullanan yeni bir World oluşturma.
 
@@ -63,6 +73,10 @@ Blender **4.2 veya üstü** (5.x ile test edildi).
 4. **Edit on Canvas** ile ışıkları tuvalde sürükleyin veya **LightPaint** ile
    doğrudan modelin üzerine "boyayın".
 5. **Export** panelinden çözünürlük ve format seçip HDRI'yi kaydedin.
+
+> Canlı güncelleme hem *Material Preview* (EEVEE) hem *Rendered* (Cycles)
+> görünümde çalışır: World iki görüntü arasında dönüşümlü güncellenir, böylece
+> Cycles her değişiklikte yeni HDRI'yi yükler.
 
 > Not: Tuval görüntüsü .blend dosyasına kaydedilmez; dosya açıldığında ışık
 > ayarlarından otomatik olarak yeniden üretilir. Kalıcı bir dosya için Export

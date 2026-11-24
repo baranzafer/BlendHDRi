@@ -86,7 +86,7 @@ class HDRISTUDIO_OT_duplicate_light(bpy.types.Operator):
         src = active_light(context.scene)
         dst = s.lights.add()
         for prop in src.bl_rna.properties:
-            if prop.identifier in {'rna_type'} or prop.is_readonly:
+            if prop.identifier in {'rna_type', 'area_object'} or prop.is_readonly:
                 continue
             setattr(dst, prop.identifier, getattr(src, prop.identifier))
         dst.name = src.name + " Copy"
@@ -392,6 +392,162 @@ class HDRISTUDIO_OT_export(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 
+# ---------------------------------------------------------------------------
+# User presets
+# ---------------------------------------------------------------------------
+
+class HDRISTUDIO_OT_save_light_preset(bpy.types.Operator):
+    bl_idname = "hdri_studio.save_light_preset"
+    bl_label = "Save Light Preset"
+    bl_description = "Save the active light as a reusable preset (available in every file)"
+
+    preset_name: StringProperty(name="Name", default="My Light")
+
+    @classmethod
+    def poll(cls, context):
+        return active_light(context.scene) is not None
+
+    def invoke(self, context, event):
+        self.preset_name = active_light(context.scene).name
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        name = self.preset_name.strip()
+        if not name:
+            return {'CANCELLED'}
+        data = presets.load_user_presets()
+        data["lights"][name] = presets.light_to_dict(active_light(context.scene))
+        presets.save_user_presets(data)
+        self.report({'INFO'}, f"Saved light preset '{name}'")
+        return {'FINISHED'}
+
+
+class HDRISTUDIO_OT_save_studio_preset(bpy.types.Operator):
+    bl_idname = "hdri_studio.save_studio_preset"
+    bl_label = "Save Studio Setup"
+    bl_description = "Save all lights and the background as a reusable studio setup"
+
+    preset_name: StringProperty(name="Name", default="My Studio")
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        name = self.preset_name.strip()
+        if not name:
+            return {'CANCELLED'}
+        data = presets.load_user_presets()
+        data["studios"][name] = presets.studio_to_dict(context.scene.hdri_studio)
+        presets.save_user_presets(data)
+        self.report({'INFO'}, f"Saved studio setup '{name}'")
+        return {'FINISHED'}
+
+
+class HDRISTUDIO_OT_add_user_light(bpy.types.Operator):
+    bl_idname = "hdri_studio.add_user_light"
+    bl_label = "Add User Light"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    preset_name: StringProperty()
+
+    def execute(self, context):
+        d = presets.load_user_presets()["lights"].get(self.preset_name)
+        if d is None:
+            self.report({'ERROR'}, "Preset not found")
+            return {'CANCELLED'}
+        light = new_light(context.scene, 'SOFTBOX_SQUARE')
+        presets.dict_to_light(light, d)
+        light.name = self.preset_name
+        studio.schedule_update(context.scene, force=True)
+        return {'FINISHED'}
+
+
+class HDRISTUDIO_OT_apply_user_studio(bpy.types.Operator):
+    bl_idname = "hdri_studio.apply_user_studio"
+    bl_label = "Load User Studio"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    preset_name: StringProperty()
+
+    def execute(self, context):
+        d = presets.load_user_presets()["studios"].get(self.preset_name)
+        if d is None:
+            self.report({'ERROR'}, "Setup not found")
+            return {'CANCELLED'}
+        presets.dict_to_studio(context.scene.hdri_studio, d)
+        studio.schedule_update(context.scene, force=True)
+        return {'FINISHED'}
+
+
+class HDRISTUDIO_OT_delete_user_preset(bpy.types.Operator):
+    bl_idname = "hdri_studio.delete_user_preset"
+    bl_label = "Delete User Preset"
+
+    kind: EnumProperty(items=[('lights', "Light", ""), ('studios', "Studio", "")])
+    preset_name: StringProperty()
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        data = presets.load_user_presets()
+        data[self.kind].pop(self.preset_name, None)
+        presets.save_user_presets(data)
+        return {'FINISHED'}
+
+
+# ---------------------------------------------------------------------------
+# Area lights
+# ---------------------------------------------------------------------------
+
+class HDRISTUDIO_OT_set_output(bpy.types.Operator):
+    bl_idname = "hdri_studio.set_output"
+    bl_label = "Set Light Output"
+    bl_description = "Choose whether lights live in the HDRI, as real Area lights, or both"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    output: EnumProperty(items=[
+        ('HDRI', "HDRI", ""), ('AREA', "Area Light", ""), ('BOTH', "Both", "")])
+    all_lights: BoolProperty(name="All Lights", default=False)
+
+    def execute(self, context):
+        s = context.scene.hdri_studio
+        targets = s.lights if self.all_lights else [active_light(context.scene)]
+        for l in targets:
+            if l is not None:
+                l.output = self.output
+        studio.schedule_update(context.scene, force=True)
+        return {'FINISHED'}
+
+
+class HDRISTUDIO_OT_bake_area_lights(bpy.types.Operator):
+    bl_idname = "hdri_studio.bake_area_lights"
+    bl_label = "Detach Area Lights"
+    bl_description = ("Keep the generated Area lights as ordinary scene lights and "
+                      "stop driving them from the studio")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.hdri_studio
+        coll = bpy.data.collections.get(studio.AREA_COLLECTION)
+        n = 0
+        for l in s.lights:
+            obj = l.area_object
+            if obj is None:
+                continue
+            if coll is not None and obj.name in coll.objects:
+                coll.objects.unlink(obj)
+                context.scene.collection.objects.link(obj)
+            l.area_object = None
+            if l.output == 'AREA':
+                l.enabled = False
+            l.output = 'HDRI'
+            n += 1
+        studio.schedule_update(context.scene, force=True)
+        self.report({'INFO'}, f"Detached {n} area light(s)")
+        return {'FINISHED'}
+
+
 class HDRISTUDIO_MT_add_light(bpy.types.Menu):
     bl_idname = "HDRISTUDIO_MT_add_light"
     bl_label = "Add Light"
@@ -400,6 +556,17 @@ class HDRISTUDIO_MT_add_light(bpy.types.Menu):
         layout = self.layout
         for key, (label, _d, icon, _p) in presets.LIGHT_PRESETS.items():
             layout.operator(HDRISTUDIO_OT_add_light.bl_idname, text=label, icon=icon).preset = key
+        user = presets.load_user_presets()["lights"]
+        if user:
+            layout.separator()
+            layout.label(text="My Lights", icon='USER')
+            for name in sorted(user):
+                layout.operator(HDRISTUDIO_OT_add_user_light.bl_idname, text=name,
+                                icon='LIGHT_AREA').preset_name = name
+        layout.separator()
+        layout.operator(HDRISTUDIO_OT_save_light_preset.bl_idname, icon='FILE_TICK')
+        if user:
+            layout.menu("HDRISTUDIO_MT_delete_user_lights", icon='TRASH')
 
 
 class HDRISTUDIO_MT_studio(bpy.types.Menu):
@@ -410,6 +577,37 @@ class HDRISTUDIO_MT_studio(bpy.types.Menu):
         layout = self.layout
         for key, (label, _d, _b, _l) in presets.STUDIO_PRESETS.items():
             layout.operator(HDRISTUDIO_OT_apply_studio.bl_idname, text=label).preset = key
+        user = presets.load_user_presets()["studios"]
+        if user:
+            layout.separator()
+            layout.label(text="My Setups", icon='USER')
+            for name in sorted(user):
+                layout.operator(HDRISTUDIO_OT_apply_user_studio.bl_idname, text=name,
+                                icon='LIGHT').preset_name = name
+        layout.separator()
+        layout.operator(HDRISTUDIO_OT_save_studio_preset.bl_idname, icon='FILE_TICK')
+        if user:
+            layout.menu("HDRISTUDIO_MT_delete_user_studios", icon='TRASH')
+
+
+class HDRISTUDIO_MT_delete_user_lights(bpy.types.Menu):
+    bl_idname = "HDRISTUDIO_MT_delete_user_lights"
+    bl_label = "Delete Light Preset"
+
+    def draw(self, context):
+        for name in sorted(presets.load_user_presets()["lights"]):
+            op = self.layout.operator(HDRISTUDIO_OT_delete_user_preset.bl_idname, text=name)
+            op.kind, op.preset_name = 'lights', name
+
+
+class HDRISTUDIO_MT_delete_user_studios(bpy.types.Menu):
+    bl_idname = "HDRISTUDIO_MT_delete_user_studios"
+    bl_label = "Delete Studio Setup"
+
+    def draw(self, context):
+        for name in sorted(presets.load_user_presets()["studios"]):
+            op = self.layout.operator(HDRISTUDIO_OT_delete_user_preset.bl_idname, text=name)
+            op.kind, op.preset_name = 'studios', name
 
 
 classes = (
@@ -426,8 +624,17 @@ classes = (
     HDRISTUDIO_OT_open_editor,
     HDRISTUDIO_OT_viewport_preview,
     HDRISTUDIO_OT_export,
+    HDRISTUDIO_OT_save_light_preset,
+    HDRISTUDIO_OT_save_studio_preset,
+    HDRISTUDIO_OT_add_user_light,
+    HDRISTUDIO_OT_apply_user_studio,
+    HDRISTUDIO_OT_delete_user_preset,
+    HDRISTUDIO_OT_set_output,
+    HDRISTUDIO_OT_bake_area_lights,
     HDRISTUDIO_MT_add_light,
     HDRISTUDIO_MT_studio,
+    HDRISTUDIO_MT_delete_user_lights,
+    HDRISTUDIO_MT_delete_user_studios,
 )
 
 

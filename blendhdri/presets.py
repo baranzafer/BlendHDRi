@@ -5,7 +5,9 @@ Positions in studio setups use ``az`` (azimuth, degrees) relative to the
 right, 180 = behind. ``el`` is the elevation in degrees.
 """
 
+import json
 import math
+import os
 
 D = math.radians
 
@@ -128,3 +130,104 @@ def apply_light_preset(light, key):
     light.name = label
     for k, v in params.items():
         setattr(light, k, v)
+
+
+# ---------------------------------------------------------------------------
+# User presets (stored as JSON in Blender's user config directory so they are
+# available in every .blend file)
+# ---------------------------------------------------------------------------
+
+LIGHT_SKIP = {"rna_type", "area_object", "texture", "name"}
+SETTINGS_KEYS = ("bg_mode", "bg_color", "bg_top", "bg_horizon", "bg_bottom",
+                 "bg_blend", "bg_strength", "bg_rotation", "world_strength")
+
+
+def user_preset_path():
+    import bpy
+    folder = bpy.utils.user_resource('CONFIG', path="blendhdri", create=True)
+    return os.path.join(folder, "presets.json")
+
+
+def load_user_presets():
+    try:
+        with open(user_preset_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    data.setdefault("lights", {})
+    data.setdefault("studios", {})
+    return data
+
+
+def save_user_presets(data):
+    path = user_preset_path()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+    os.replace(tmp, path)
+
+
+def _plain(value):
+    if hasattr(value, "__len__") and not isinstance(value, str):
+        return [float(v) for v in value]
+    return value
+
+
+def light_to_dict(light):
+    d = {}
+    for prop in light.bl_rna.properties:
+        key = prop.identifier
+        if key in LIGHT_SKIP or prop.is_readonly or prop.type in {'POINTER', 'COLLECTION'}:
+            continue
+        d[key] = _plain(getattr(light, key))
+    if light.texture is not None:
+        import bpy
+        d["texture"] = {"name": light.texture.name,
+                        "filepath": bpy.path.abspath(light.texture.filepath)}
+    return d
+
+
+def dict_to_light(light, d):
+    import bpy
+    for key, value in d.items():
+        if key == "texture":
+            img = bpy.data.images.get(value.get("name", ""))
+            path = value.get("filepath", "")
+            if img is None and path and os.path.exists(path):
+                try:
+                    img = bpy.data.images.load(path, check_existing=True)
+                except RuntimeError:
+                    img = None
+            light.texture = img
+            continue
+        if key in LIGHT_SKIP or not hasattr(light, key):
+            continue
+        try:
+            setattr(light, key, value)
+        except (TypeError, ValueError, AttributeError):
+            pass
+
+
+def studio_to_dict(settings):
+    data = {k: _plain(getattr(settings, k)) for k in SETTINGS_KEYS}
+    data["lights"] = []
+    for l in settings.lights:
+        d = light_to_dict(l)
+        d["name"] = l.name
+        data["lights"].append(d)
+    return data
+
+
+def dict_to_studio(settings, data):
+    for k in SETTINGS_KEYS:
+        if k in data:
+            try:
+                setattr(settings, k, data[k])
+            except (TypeError, ValueError):
+                pass
+    settings.lights.clear()
+    for d in data.get("lights", []):
+        light = settings.lights.add()
+        dict_to_light(light, d)
+        light.name = d.get("name", "Light")
+    settings.active_index = 0 if settings.lights else -1
