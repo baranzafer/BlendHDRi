@@ -275,8 +275,7 @@ class HDRISTUDIO_OT_open_editor(bpy.types.Operator):
             space.ui_mode = 'VIEW'
         except Exception:
             pass
-        custom = bpy.context.scene.hdri_studio.use_custom_ui
-        space.show_region_ui = not custom
+        space.show_region_ui = True
         try:
             space.show_region_toolbar = False
         except Exception:
@@ -284,8 +283,8 @@ class HDRISTUDIO_OT_open_editor(bpy.types.Operator):
         # Fit once the new area has its final size.
         def fit():
             try:
-                from . import gui_ops
-                gui_ops.fit_area(target)
+                from . import canvas_ops
+                canvas_ops.fit_area(target)
             except Exception:
                 pass
             return None

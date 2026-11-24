@@ -196,10 +196,7 @@ class HDRIStudioSettings(PropertyGroup):
         name="Power Scale", default=1.0, min=0.0, soft_max=10.0, update=_changed,
         description="Multiplier for the power of generated area lights")
 
-    # Studio UI --------------------------------------------------------------
-    use_custom_ui: BoolProperty(
-        name="Studio Interface", default=True, update=_active_changed,
-        description="Draw the BlendHDRi studio interface on the canvas instead of using the sidebar")
+    # Canvas editing -----------------------------------------------------------
     canvas_interaction: BoolProperty(
         name="Canvas Interaction", default=True, update=_active_changed,
         description="Select, drag and edit lights directly on the canvas")
@@ -215,10 +212,6 @@ class HDRIStudioSettings(PropertyGroup):
     snap_angle: BoolProperty(
         name="Snap", default=False, update=_active_changed,
         description="Snap light positions to 5 degree steps while dragging")
-    ui_language: EnumProperty(
-        name="Language", default='AUTO', update=_active_changed,
-        items=[('AUTO', "Auto", "Follow Blender's interface language"),
-               ('TR', "Türkçe", ""), ('EN', "English", "")])
 
     # Canvas overlay -------------------------------------------------------
     show_outlines: BoolProperty(

@@ -359,30 +359,21 @@ def render(width, height, background, lights, chunk_rows=256):
 # Outline / picking helpers used by the canvas overlay
 # ---------------------------------------------------------------------------
 
-def outline_local(light, segments=72):
-    """Boundary points in normalised light space (nx, ny)."""
+def outline_local(light, segments=256):
+    """Boundary points (nx, ny) of the light in its own tangent plane.
+
+    The boundary is found radially (``point = dir / distance(dir)``) so the
+    points are spread along the whole perimeter, not bunched up in the
+    corners of near-square superellipses.
+    """
+    exp = light.rect_exponent()
     pts = []
-    if light.shape == 'OCTAGON':
-        for k in range(8):
-            a = k * math.pi / 4.0
-            pts.append((math.cos(a), math.sin(a)))
-        pts.append(pts[0])
-        # subdivide edges so they curve correctly on the sphere
-        dense = []
-        for (x0, y0), (x1, y1) in zip(pts[:-1], pts[1:]):
-            for i in range(8):
-                t = i / 8.0
-                dense.append((x0 + (x1 - x0) * t, y0 + (y1 - y0) * t))
-        dense.append(dense[0])
-        return dense
-    p = light.rect_exponent() if light.shape == 'RECT' else 2.0
-    e = 2.0 / p
     for i in range(segments + 1):
         a = TAU * i / segments
-        c, s = math.cos(a), math.sin(a)
-        x = math.copysign(abs(c) ** e, c)
-        y = math.copysign(abs(s) ** e, s)
-        pts.append((x, y))
+        c, s_ = math.cos(a), math.sin(a)
+        d = float(shape_distance(light.shape, np.array(c), np.array(s_), exp))
+        d = d if d > 1e-6 else 1.0
+        pts.append((c / d, s_ / d))
     return pts
 
 
@@ -394,9 +385,53 @@ def local_to_lonlat(light, nx, ny):
     return dir_to_lonlat(d)
 
 
-def outline_uv(light, segments=72):
-    return [lonlat_to_uv(*local_to_lonlat(light, x, y))
-            for x, y in outline_local(light, segments)]
+def outline_lonlat(light, segments=256, max_step=math.radians(0.75)):
+    """Outline as (lon, lat) points, densified so every segment is short.
+
+    Straight lines in the light's tangent plane are great circles on the
+    sphere, so subdividing in the plane follows the true (curved) edge of the
+    light in the equirectangular image.
+    """
+    local = outline_local(light, segments)
+    tw, th = light.tan_half()
+    out = []
+    prev = None
+    for p in local:
+        if prev is not None:
+            # angular length of this piece (approx.)
+            a = local_to_lonlat(light, *prev)
+            b = local_to_lonlat(light, *p)
+            da = math.acos(max(-1.0, min(1.0, sum(x * y for x, y in zip(lonlat_to_dir(*a), lonlat_to_dir(*b))))))
+            n = max(1, int(math.ceil(da / max_step)))
+            for k in range(1, n):
+                t = k / n
+                out.append(local_to_lonlat(light, prev[0] + (p[0] - prev[0]) * t,
+                                           prev[1] + (p[1] - prev[1]) * t))
+        out.append(local_to_lonlat(light, *p))
+        prev = p
+    return out
+
+
+def outline_uv(light, segments=256):
+    return [lonlat_to_uv(lon, lat) for lon, lat in outline_lonlat(light, segments)]
+
+
+def uv_segments(uvs):
+    """Split an outline into drawable (u, v) segments, wrapping across the seam.
+
+    A segment that crosses the left/right edge of the image is drawn twice,
+    once on each side, instead of being dropped.
+    """
+    segs = []
+    for (u0, v0), (u1, v1) in zip(uvs[:-1], uvs[1:]):
+        du = u1 - u0
+        if abs(du) <= 0.5:
+            segs.append(((u0, v0), (u1, v1)))
+        else:
+            shift = -1.0 if du > 0 else 1.0
+            segs.append(((u0, v0), (u1 + shift, v1)))
+            segs.append(((u0 - shift, v0), (u1, v1)))
+    return segs
 
 
 def hit_test(light, lon, lat):
@@ -433,77 +468,3 @@ def write_radiance_hdr(path, arr):
         f.write(b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n")
         f.write(f"-Y {h} +X {w}\n".encode("ascii"))
         f.write(rgbe.tobytes())
-
-
-# ---------------------------------------------------------------------------
-# Preview spheres (chrome + diffuse) for the studio interface
-# ---------------------------------------------------------------------------
-
-def _downsample(env, w, h):
-    eh, ew = env.shape[:2]
-    fy, fx = max(1, eh // h), max(1, ew // w)
-    e = env[:fy * h, :fx * w, :3]
-    return e.reshape(h, fy, w, fx, 3).mean(axis=(1, 3))
-
-
-def _dirs_to_uv(dx, dy, dz):
-    u = (0.5 - np.arctan2(dy, dx) / TAU) % 1.0
-    v = 0.5 + np.arcsin(np.clip(dz, -1.0, 1.0)) / math.pi
-    return u, v
-
-
-def _tonemap(c):
-    c = np.maximum(c, 0.0)
-    c = c / (1.0 + c)
-    return c ** (1.0 / 2.2)
-
-
-def preview_spheres(env, size=72, front_lon=-math.pi / 2):
-    """Return (chrome, diffuse) RGBA float arrays (size, size, 4), row 0 at the bottom.
-
-    The spheres are seen from ``front_lon`` (the side facing the camera).
-    """
-    small = _downsample(env, 256, 128)
-    sh, sw = small.shape[:2]
-    tiny = _downsample(env, 32, 16)
-    th, tw = tiny.shape[:2]
-
-    # Camera looks from the front towards the centre.
-    f = np.array([math.cos(front_lon), math.sin(front_lon), 0.0])
-    d = -f                                  # viewing direction
-    right = np.array([-d[1], d[0], 0.0])    # camera right
-    up = np.array([0.0, 0.0, 1.0])
-
-    c = (np.arange(size) + 0.5) / size * 2.0 - 1.0
-    X, Y = np.meshgrid(c, c)                # Y up (row 0 = bottom)
-    r2 = X * X + Y * Y
-    inside = r2 < 1.0
-    Z = np.sqrt(np.clip(1.0 - r2, 0.0, 1.0))
-    n = X[..., None] * right + Y[..., None] * up + Z[..., None] * f
-    alpha = np.clip((1.0 - np.sqrt(r2)) * size * 0.5, 0.0, 1.0)
-
-    # Chrome: mirror reflection
-    dn = (n * d).sum(-1, keepdims=True)
-    refl = d - 2.0 * dn * n
-    u, v = _dirs_to_uv(refl[..., 0], refl[..., 1], refl[..., 2])
-    xi = np.clip((u * sw).astype(np.int64), 0, sw - 1)
-    yi = np.clip((v * sh).astype(np.int64), 0, sh - 1)
-    chrome = small[yi, xi] * 0.9
-
-    # Diffuse: cosine-weighted irradiance from the tiny map
-    lat = ((np.arange(th) + 0.5) / th - 0.5) * math.pi
-    lon = (0.5 - (np.arange(tw) + 0.5) / tw) * TAU
-    LA, LO = np.meshgrid(lat, lon, indexing='ij')
-    dirs = np.stack([np.cos(LA) * np.cos(LO), np.cos(LA) * np.sin(LO), np.sin(LA)], -1).reshape(-1, 3)
-    solid = (np.cos(LA) * (math.pi / th) * (TAU / tw)).reshape(-1)
-    rad = tiny.reshape(-1, 3) * solid[:, None]
-    cos = np.clip(n.reshape(-1, 3) @ dirs.T, 0.0, None)
-    diffuse = (cos @ rad / math.pi * 0.8).reshape(size, size, 3)
-
-    out = []
-    for img in (chrome, diffuse):
-        rgba = np.zeros((size, size, 4), dtype=np.float32)
-        rgba[..., :3] = _tonemap(img)
-        rgba[..., 3] = np.where(inside, alpha, 0.0)
-        out.append(rgba)
-    return out[0], out[1]

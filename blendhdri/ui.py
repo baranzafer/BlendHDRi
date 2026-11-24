@@ -1,6 +1,6 @@
 import bpy
 
-from . import canvas, gui, lightpaint, studio
+from . import canvas, lightpaint, studio
 
 
 class HDRISTUDIO_UL_lights(bpy.types.UIList):
@@ -25,19 +25,17 @@ def _studio_toggles(layout, context):
     s = context.scene.hdri_studio
     col = layout.column(align=True)
     row = col.row(align=True)
-    row.scale_y = 1.3
-    row.prop(s, "canvas_interaction", text="Canvas Editing", toggle=True,
+    row.scale_y = 1.2
+    row.prop(s, "canvas_interaction", text="Edit on Canvas", toggle=True,
              icon='RESTRICT_SELECT_OFF')
     row.operator("hdri_studio.lightpaint", text="LightPaint",
                  icon='BRUSH_DATA', depress=lightpaint.is_running())
-    row = col.row(align=True)
-    row.prop(s, "use_custom_ui", toggle=True, icon='WINDOW')
-    row.prop(s, "ui_language", text="")
-    row = col.row(align=True)
-    row.prop(s, "canvas_tool", expand=True)
+    row.operator("hdri_studio.reset_tools", text="", icon='CANCEL')
+    sub = col.row(align=True)
+    sub.active = s.canvas_interaction
+    sub.prop(s, "canvas_tool", expand=True)
     row = col.row(align=True)
     row.prop(s, "paint_mode", expand=True)
-    row.operator("hdri_studio.reset_tools", text="", icon='CANCEL')
 
 
 class HDRIStudioPanel:
@@ -52,14 +50,11 @@ class _Main(HDRIStudioPanel):
         layout = self.layout
         s = context.scene.hdri_studio
 
-        row = layout.row(align=True)
-        if context.area.type == 'IMAGE_EDITOR' and canvas.is_canvas_space(context.space_data):
-            pass
-        else:
+        if not canvas.is_canvas_space(context.space_data):
+            row = layout.row()
             row.scale_y = 1.3
-            op = row.operator("hdri_studio.open_editor", text="Open Studio Editor", icon='WORKSPACE')
-            op.mode = 'SPLIT'
-            row.operator("hdri_studio.open_editor", text="", icon='WINDOW').mode = 'WINDOW'
+            row.operator("hdri_studio.open_editor", text="Show Studio Canvas",
+                         icon='IMAGE').mode = 'REPLACE'
 
         _studio_toggles(layout, context)
 
@@ -221,6 +216,9 @@ class _Display(HDRIStudioPanel):
         row = self.layout.row(align=True)
         row.prop(s, "show_outlines", toggle=True)
         row.prop(s, "show_labels", toggle=True)
+        row.prop(s, "show_grid", toggle=True)
+        self.layout.prop(s, "snap_angle", text="Snap to 5° while dragging")
+        self.layout.operator("hdri_studio.fit_view", icon='ZOOM_ALL')
 
 
 class _Export(HDRIStudioPanel):
@@ -239,27 +237,15 @@ class _Export(HDRIStudioPanel):
 _BASES = (_Main, _Lights, _LightProps, _AreaLights, _Background, _Display, _Export)
 
 
-def _image_poll(base):
-    base_poll = getattr(base, "poll", None)
-
-    def poll(cls, context):
-        if gui.is_studio_space(context.space_data):
-            return False
-        return base_poll.__func__(cls, context) if base_poll else True
-    return poll
-
-
 def _make_panels():
     panels = []
-    for space, tag in (('IMAGE_EDITOR', "IMAGE"), ('VIEW_3D', "VIEW3D")):
+    for space, tag in (('IMAGE_EDITOR', "IMAGE"),):
         parent = None
         for base in _BASES:
             name = f"HDRISTUDIO_PT_{tag}_{base.__name__.strip('_').lower()}"
             attrs = {"bl_space_type": space, "bl_idname": name}
             if base is not _Main:
                 attrs["bl_parent_id"] = parent
-            if space == 'IMAGE_EDITOR':
-                attrs["poll"] = classmethod(_image_poll(base))
             cls = type(name, (base, bpy.types.Panel), attrs)
             if base is _Main:
                 parent = name
@@ -278,8 +264,8 @@ def draw_image_header(self, context):
     row = layout.row(align=True)
     row.label(text="HDRI Studio", icon='LIGHT_AREA')
     st = context.scene.hdri_studio
-    row.prop(st, "use_custom_ui", text="", icon='WINDOW')
     row.prop(st, "canvas_interaction", text="", icon='RESTRICT_SELECT_OFF')
+    row.operator("hdri_studio.fit_view", text="", icon='ZOOM_ALL')
     row.menu("HDRISTUDIO_MT_add_light", text="", icon='ADD')
     row.menu("HDRISTUDIO_MT_studio", text="", icon='PRESET')
     row.operator("hdri_studio.update", text="", icon='FILE_REFRESH')

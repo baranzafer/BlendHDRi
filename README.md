@@ -12,21 +12,15 @@ tıklayarak ışığı yansımanın/aydınlatmanın düşeceği yere konumlandı
 
 ## Özellikler
 
-- **Studio arayüzü** (v0.3) – Shader Editor açar gibi ekranı bölerek açılan
-  editörde, N paneli yerine GPU ile çizilen kendi arayüzü (Mini CAD tarzı):
-  - **Üst şerit:** kurulumlar, kaydet, canlı güncelleme, önizleme çözünürlüğü,
-    dünya, viewport, sığdır, *Klasik* (N paneline dönüş) ve dışa aktarma.
-  - **Araç paleti:** Seç/Taşı, Ölçekle, Döndür, Tıkla-ekle ve LightPaint araçları,
-    12 hazır ışık, yerleşim modu ve tuval seçenekleri (ızgara, etiket, 5° yakalama).
-    Paleti başlığından sürükleyip katlayabilirsiniz.
-  - **Işık denetçisi:** şekil, karışım, konum, boyut, kenar, parlaklık, renk ve
-    Kelvin, çıktı (HDRI / Area / İkisi), doku. Sürgüler sürüklenir (`Shift`: hassas,
-    `Ctrl`: adımlı) ya da tekerlekle değişir.
-  - **Katman şeridi:** ışık kartları, göz simgesiyle gizle/göster, sıralama, sağ tık menüsü.
-  - **Krom / mat küre önizlemesi** her değişiklikte güncellenir.
-  - Arayüz Blender'in dil ayarına göre Türkçe ya da İngilizce olur; ayarlardan değiştirilebilir.
-- **Tuvalde düzenleme** (her zaman açık, ayrı bir mod gerekmez)
-  - Sol tık: ışığı seç / sürükle (aktif araca göre taşı, ölçekle, döndür)
+- **Studio editörü** – Shader Editor açar gibi ekranı bölerek açılan bir
+  Image Editor; HDRI tuvali burada canlı görünür. Bütün ayarlar bu editörün
+  **N panelindeki "HDRI Studio"** sekmesindedir (3B görünümde panel yoktur).
+  Işıklar tuval üzerinde, yüzeydeki gerçek kenarlarını birebir izleyen
+  outline'larla çizilir; seçili ışık turuncu ve en üstte gösterilir.
+- **Tuvalde düzenleme** (N paneldeki *Edit on Canvas* açıkken)
+  - Sol tık: ışığı seç / sürükle. N paneldeki araç seçimine göre
+    taşır (*Move*), ölçekler (*Scale*), döndürür (*Rotate*) ya da tıklanan
+    yere ekler (*Add*)
   - `Ctrl` + sol tık: tıklanan yere yeni ışık ekle
   - `Ctrl` + tekerlek: boyut, `Shift` + tekerlek: döndürme, `Alt` + tekerlek: parlaklık
   - Fare bir ışığın üzerindeyken `H` gizler/gösterir, `X` / `Del` siler; sağ tık menü açar
@@ -71,9 +65,11 @@ Blender **4.2 veya üstü** (5.x ile test edildi).
 
 ## Kullanım
 
-1. 3B görünümde `N` panelini açın → **HDRI Studio** sekmesi →
-   **Open Studio Editor** (ya da *Window ▸ HDRI Studio Editor* /
-   *View ▸ HDRI Studio Editor*). Henüz ışık yoksa *Three Point* kurulumu yüklenir.
+1. *Window ▸ HDRI Studio Editor* (ya da 3B görünümde *View ▸ HDRI Studio
+   Editor*) ile editörü açın; ekran bölünür ve Image Editor'de HDRI tuvali
+   açılır, N paneli **HDRI Studio** sekmesiyle görünür. Herhangi bir Image
+   Editor'de N panelindeki *Show Studio Canvas* da tuvali açar. Henüz ışık
+   yoksa *Three Point* kurulumu yüklenir.
 2. **Preview in Viewport** ile 3B görünümde sonucu canlı izleyin
    (Material Preview veya Rendered modu).
 3. `+` menüsünden ışık ekleyin ya da **Studio Setups** menüsünden bir kurulum seçin.
@@ -90,6 +86,8 @@ Blender **4.2 veya üstü** (5.x ile test edildi).
 > zamanlayıcıyla takip edilir; Blender bir operatörü kapatırsa buton
 > kendiliğinden normale döner. Gerekirse N panelindeki ✕ (*Reset Interactive
 > Tools*) her şeyi sıfırlar.
+
+![outline](docs/outline_fix.png)
 
 > Not: Tuval görüntüsü .blend dosyasına kaydedilmez; dosya açıldığında ışık
 > ayarlarından otomatik olarak yeniden üretilir. Kalıcı bir dosya için Export
@@ -110,10 +108,8 @@ Blender **4.2 veya üstü** (5.x ile test edildi).
 | `blendhdri/studio.py` | Tuval görüntüsü, World node ağacı, canlı güncelleme |
 | `blendhdri/presets.py` | Hazır ışıklar ve stüdyo kurulumları |
 | `blendhdri/ops.py` | Operatörler (ekle/sil, kurulum, editör açma, dışa aktarma) |
-| `blendhdri/canvas.py` | Tuval üstü ışık çizimi ve seçme |
-| `blendhdri/gui_kit.py` | GPU widget kiti (çizim + tıklama hedefleri tek kaynaktan) |
-| `blendhdri/gui.py` | Studio arayüzü yerleşimi, Türkçe/İngilizce metinler |
-| `blendhdri/gui_ops.py` | Keymap tabanlı tıklama / sürükleme / tekerlek / kısayol işlemleri |
+| `blendhdri/canvas.py` | Tuval üstü outline, ızgara, yön etiketleri ve seçme |
+| `blendhdri/canvas_ops.py` | Keymap tabanlı tıklama / sürükleme / tekerlek / kısayol işlemleri |
 | `blendhdri/session.py` | Modal araçlar için güvenli oturum (kalp atışı, sıfırlama) |
 | `blendhdri/lightpaint.py` | 3B görünümde tıkla-yerleştir |
 | `blendhdri/ui.py` | Paneller, liste, başlık menüleri |
