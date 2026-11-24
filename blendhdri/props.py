@@ -197,9 +197,6 @@ class HDRIStudioSettings(PropertyGroup):
         description="Multiplier for the power of generated area lights")
 
     # Canvas editing -----------------------------------------------------------
-    canvas_interaction: BoolProperty(
-        name="Canvas Interaction", default=True, update=_active_changed,
-        description="Select, drag and edit lights directly on the canvas")
     canvas_tool: EnumProperty(
         name="Canvas Tool", default='MOVE', update=_active_changed,
         items=[

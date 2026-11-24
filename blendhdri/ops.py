@@ -285,6 +285,7 @@ class HDRISTUDIO_OT_open_editor(bpy.types.Operator):
             try:
                 from . import canvas_ops
                 canvas_ops.fit_area(target)
+                canvas_ops.set_tool(target, enable=True)
             except Exception:
                 pass
             return None

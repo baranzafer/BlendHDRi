@@ -1,8 +1,10 @@
 """Direct editing of lights on the HDRI canvas (Image Editor).
 
-Every interaction goes through keymap operators that run once per event and
-return PASS_THROUGH when the event is not for a light, so the Image Editor's
-own tools keep working. The only modal operator (``canvas_drag``) lives just
+Editing happens through the "HDRI Lights" tool in the Image Editor's toolbar.
+A tool's keymap is evaluated before the editor's own keymaps, so its clicks
+are not swallowed by the default Sample tool. Each operator runs once per
+event and returns PASS_THROUGH when the event is not for a light, so panning
+and zooming keep working. The only modal operator (``canvas_drag``) lives just
 while the mouse button is held and ends on release, on a missed release
 (next press), on focus loss or when its region disappears.
 """
@@ -16,18 +18,41 @@ from bpy.props import EnumProperty
 from . import canvas, render, session, studio
 from .ops import active_light, new_light
 
-_keymaps = []
+TOOL_ID = "hdri_studio.light_tool"
+DEFAULT_TOOL = "builtin.sample"
+
 _pending = {}
 
 
 def _poll(context):
     if not canvas.is_canvas_space(context.space_data):
         return False
-    if context.region is None or context.region.type != 'WINDOW':
-        return False
+    return context.region is not None and context.region.type == 'WINDOW'
+
+
+def tool_active(context):
+    """True if the HDRI Lights tool is the active Image Editor (View) tool."""
     try:
-        return context.scene.hdri_studio.canvas_interaction
+        tool = context.workspace.tools.from_space_image_mode('VIEW', create=False)
+        return tool is not None and tool.idname == TOOL_ID
     except Exception:
+        return False
+
+
+def set_tool(area, enable=True):
+    """Activate (or leave) the HDRI Lights tool in an Image Editor area."""
+    if area is None or area.type != 'IMAGE_EDITOR':
+        return False
+    region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+    try:
+        if area.spaces.active.ui_mode != 'VIEW':
+            area.spaces.active.ui_mode = 'VIEW'
+        with bpy.context.temp_override(area=area, region=region):
+            bpy.ops.wm.tool_set_by_id(name=TOOL_ID if enable else DEFAULT_TOOL,
+                                      space_type='IMAGE_EDITOR')
+        return True
+    except Exception:
+        traceback.print_exc()
         return False
 
 
@@ -378,7 +403,62 @@ def fit_area(area):
         traceback.print_exc()
 
 
+class HDRISTUDIO_OT_canvas_edit_toggle(bpy.types.Operator):
+    bl_idname = "hdri_studio.canvas_edit_toggle"
+    bl_label = "Edit on Canvas"
+    bl_description = ("Switch the Image Editor to the HDRI Lights tool to select and drag "
+                      "lights on the canvas (click again to go back to Sample)")
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == 'IMAGE_EDITOR'
+
+    def execute(self, context):
+        if not canvas.is_canvas_space(context.space_data):
+            img = studio.get_canvas(context.scene, create=False) or studio.update_preview(context.scene)
+            context.space_data.image = img
+        set_tool(context.area, enable=not tool_active(context))
+        for area in context.screen.areas:
+            area.tag_redraw()
+        return {'FINISHED'}
+
+
+def _draw_tool_settings(context, layout, tool):
+    st = context.scene.hdri_studio
+    layout.prop(st, "canvas_tool", expand=True)
+    layout.prop(st, "canvas_add_preset", text="Add")
+    layout.prop(st, "snap_angle", text="Snap 5°")
+
+
+class HDRIStudioLightTool(bpy.types.WorkSpaceTool):
+    bl_space_type = 'IMAGE_EDITOR'
+    bl_context_mode = 'VIEW'
+    bl_idname = TOOL_ID
+    bl_label = "HDRI Lights"
+    bl_description = ("Select and drag HDRI Studio lights on the canvas.\n"
+                      "Ctrl+Click: add light · Ctrl/Shift/Alt+Wheel: size/rotation/intensity\n"
+                      "H / X over a light: hide / delete · Right click: light menu")
+    bl_icon = "ops.transform.translate"
+    bl_widget = None
+    bl_keymap = (
+        ("hdri_studio.canvas_press", {"type": 'LEFTMOUSE', "value": 'PRESS', "any": True}, None),
+        ("hdri_studio.canvas_hover", {"type": 'MOUSEMOVE', "value": 'ANY', "any": True}, None),
+        ("hdri_studio.canvas_wheel", {"type": 'WHEELUPMOUSE', "value": 'PRESS', "any": True},
+         {"properties": [("direction", 'UP')]}),
+        ("hdri_studio.canvas_wheel", {"type": 'WHEELDOWNMOUSE', "value": 'PRESS', "any": True},
+         {"properties": [("direction", 'DOWN')]}),
+        ("hdri_studio.canvas_key", {"type": 'X', "value": 'PRESS'}, {"properties": [("action", 'DELETE')]}),
+        ("hdri_studio.canvas_key", {"type": 'DEL', "value": 'PRESS'}, {"properties": [("action", 'DELETE')]}),
+        ("hdri_studio.canvas_key", {"type": 'H', "value": 'PRESS'}, {"properties": [("action", 'HIDE')]}),
+        ("hdri_studio.canvas_context", {"type": 'RIGHTMOUSE', "value": 'PRESS'}, None),
+    )
+
+    def draw_settings(context, layout, tool):
+        _draw_tool_settings(context, layout, tool)
+
+
 classes = (
+    HDRISTUDIO_OT_canvas_edit_toggle,
     HDRISTUDIO_OT_canvas_press,
     HDRISTUDIO_OT_canvas_drag,
     HDRISTUDIO_OT_canvas_hover,
@@ -394,33 +474,13 @@ classes = (
 def register():
     for c in classes:
         bpy.utils.register_class(c)
-    kc = bpy.context.window_manager.keyconfigs.addon
-    if kc is None:   # background mode
-        return
-    km = kc.keymaps.new(name='Image', space_type='IMAGE_EDITOR')
-    items = [
-        ("hdri_studio.canvas_press", 'LEFTMOUSE', 'PRESS', {"any": True}, {}),
-        ("hdri_studio.canvas_hover", 'MOUSEMOVE', 'ANY', {"any": True}, {}),
-        ("hdri_studio.canvas_wheel", 'WHEELUPMOUSE', 'PRESS', {"any": True}, {"direction": 'UP'}),
-        ("hdri_studio.canvas_wheel", 'WHEELDOWNMOUSE', 'PRESS', {"any": True}, {"direction": 'DOWN'}),
-        ("hdri_studio.canvas_key", 'X', 'PRESS', {}, {"action": 'DELETE'}),
-        ("hdri_studio.canvas_key", 'DEL', 'PRESS', {}, {"action": 'DELETE'}),
-        ("hdri_studio.canvas_key", 'H', 'PRESS', {}, {"action": 'HIDE'}),
-        ("hdri_studio.canvas_context", 'RIGHTMOUSE', 'PRESS', {}, {}),
-    ]
-    for idname, key, value, mods, props in items:
-        kmi = km.keymap_items.new(idname, key, value, **mods)
-        for k, v in props.items():
-            setattr(kmi.properties, k, v)
-        _keymaps.append((km, kmi))
+    bpy.utils.register_tool(HDRIStudioLightTool, after={DEFAULT_TOOL}, separator=True)
 
 
 def unregister():
-    for km, kmi in _keymaps:
-        try:
-            km.keymap_items.remove(kmi)
-        except Exception:
-            pass
-    _keymaps.clear()
+    try:
+        bpy.utils.unregister_tool(HDRIStudioLightTool)
+    except Exception:
+        traceback.print_exc()
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

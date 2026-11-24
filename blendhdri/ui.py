@@ -1,6 +1,6 @@
 import bpy
 
-from . import canvas, lightpaint, studio
+from . import canvas, canvas_ops, lightpaint, studio
 
 
 class HDRISTUDIO_UL_lights(bpy.types.UIList):
@@ -26,13 +26,14 @@ def _studio_toggles(layout, context):
     col = layout.column(align=True)
     row = col.row(align=True)
     row.scale_y = 1.2
-    row.prop(s, "canvas_interaction", text="Edit on Canvas", toggle=True,
-             icon='RESTRICT_SELECT_OFF')
+    editing = canvas_ops.tool_active(context)
+    row.operator("hdri_studio.canvas_edit_toggle", text="Edit on Canvas",
+                 icon='RESTRICT_SELECT_OFF', depress=editing)
     row.operator("hdri_studio.lightpaint", text="LightPaint",
                  icon='BRUSH_DATA', depress=lightpaint.is_running())
     row.operator("hdri_studio.reset_tools", text="", icon='CANCEL')
     sub = col.row(align=True)
-    sub.active = s.canvas_interaction
+    sub.active = editing
     sub.prop(s, "canvas_tool", expand=True)
     row = col.row(align=True)
     row.prop(s, "paint_mode", expand=True)
@@ -263,8 +264,8 @@ def draw_image_header(self, context):
     layout.separator()
     row = layout.row(align=True)
     row.label(text="HDRI Studio", icon='LIGHT_AREA')
-    st = context.scene.hdri_studio
-    row.prop(st, "canvas_interaction", text="", icon='RESTRICT_SELECT_OFF')
+    row.operator("hdri_studio.canvas_edit_toggle", text="", icon='RESTRICT_SELECT_OFF',
+                 depress=canvas_ops.tool_active(context))
     row.operator("hdri_studio.fit_view", text="", icon='ZOOM_ALL')
     row.menu("HDRISTUDIO_MT_add_light", text="", icon='ADD')
     row.menu("HDRISTUDIO_MT_studio", text="", icon='PRESET')

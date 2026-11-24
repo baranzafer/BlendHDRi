@@ -17,10 +17,13 @@ tıklayarak ışığı yansımanın/aydınlatmanın düşeceği yere konumlandı
   **N panelindeki "HDRI Studio"** sekmesindedir (3B görünümde panel yoktur).
   Işıklar tuval üzerinde, yüzeydeki gerçek kenarlarını birebir izleyen
   outline'larla çizilir; seçili ışık turuncu ve en üstte gösterilir.
-- **Tuvalde düzenleme** (N paneldeki *Edit on Canvas* açıkken)
-  - Sol tık: ışığı seç / sürükle. N paneldeki araç seçimine göre
-    taşır (*Move*), ölçekler (*Scale*), döndürür (*Rotate*) ya da tıklanan
-    yere ekler (*Add*)
+- **Tuvalde düzenleme** – Image Editor araç çubuğundaki (`T`) **HDRI Lights**
+  aracıyla yapılır. N paneldeki *Edit on Canvas* bu aracı seçer / bırakır;
+  Studio Editor açılınca araç kendiliğinden seçilir. Aracın ayarları
+  (Move / Scale / Rotate / Add, eklenecek preset, 5° yakalama) üstteki araç
+  ayarları şeridinde görünür.
+  - Sol tık: ışığı seç / sürükle; seçili moda göre taşır, ölçekler,
+    döndürür ya da tıklanan yere ekler
   - `Ctrl` + sol tık: tıklanan yere yeni ışık ekle
   - `Ctrl` + tekerlek: boyut, `Shift` + tekerlek: döndürme, `Alt` + tekerlek: parlaklık
   - Fare bir ışığın üzerindeyken `H` gizler/gösterir, `X` / `Del` siler; sağ tık menü açar
