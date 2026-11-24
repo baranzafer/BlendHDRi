@@ -12,12 +12,12 @@ import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 
-from . import render, studio
+from . import render, session, studio
 from .ops import active_light, new_light
 
+SESSION = "canvas_edit"
+
 state = {
-    "editing": False,
-    "stop": False,
     "hover": -1,
 }
 
@@ -31,7 +31,7 @@ COL_AREA = (0.4, 1.0, 0.5, 0.9)
 
 HELP = ("HDRI Studio  |  LMB: select / drag   Ctrl+LMB: add light   "
         "Ctrl+Wheel: size   Shift+Wheel: rotate   Alt+Wheel: intensity   "
-        "H: hide   X/Del: delete   Esc / RMB: finish")
+        "H / X over a light: hide / delete   Esc / RMB: finish")
 
 
 def is_canvas_space(space):
@@ -130,7 +130,7 @@ def draw_overlay():
                     label += " (+area)"
                 blf.draw(font, label)
 
-    if state["editing"]:
+    if is_editing():
         blf.color(font, 1.0, 0.8, 0.4, 1.0)
         blf.position(font, 12, 12, 0)
         blf.draw(font, HELP)
@@ -191,39 +191,28 @@ def pick_light(scene, region, event):
 # Modal editing operator
 # ---------------------------------------------------------------------------
 
-class HDRISTUDIO_OT_canvas_edit(bpy.types.Operator):
+class HDRISTUDIO_OT_canvas_edit(session.ModalToolMixin, bpy.types.Operator):
     bl_idname = "hdri_studio.canvas_edit"
     bl_label = "Edit Lights on Canvas"
     bl_description = ("Interactively place lights by dragging them on the HDRI canvas. "
                       "Run again to stop")
 
-    def invoke(self, context, event):
-        if state["editing"]:
-            state["stop"] = True
-            return {'CANCELLED'}
+    session_name = SESSION
+    status_text = HELP
+
+    # -- lifecycle -----------------------------------------------------------
+    def tool_start(self, context, event):
         if studio.get_canvas(context.scene, create=False) is None:
             studio.update_preview(context.scene)
         self.drag = None
-        state["editing"] = True
-        state["stop"] = False
-        context.window_manager.modal_handler_add(self)
-        try:
-            context.workspace.status_text_set(HELP)
-        except Exception:
-            pass
-        studio.tag_redraw()
-        return {'RUNNING_MODAL'}
-
-    def finish(self, context):
-        state["editing"] = False
-        state["stop"] = False
         state["hover"] = -1
-        try:
-            context.workspace.status_text_set(None)
-        except Exception:
-            pass
-        studio.tag_redraw()
-        return {'FINISHED'}
+        return True
+
+    def tool_cleanup(self, context):
+        if getattr(self, "drag", None) is not None:
+            self.drag = None
+            self._push_undo("Move HDRI Light")
+        state["hover"] = -1
 
     def _push_undo(self, msg):
         try:
@@ -231,31 +220,45 @@ class HDRISTUDIO_OT_canvas_edit(bpy.types.Operator):
         except Exception:
             pass
 
-    def modal(self, context, event):
-        if state["stop"]:
-            return self.finish(context)
+    def _end_drag(self):
+        if self.drag is not None:
+            self.drag = None
+            self._push_undo("Move HDRI Light")
+
+    # -- events ----------------------------------------------------------------
+    def tool_modal(self, context, event):
         scene = context.scene
         s = scene.hdri_studio
+
+        if event.type == 'TIMER':
+            return {'PASS_THROUGH'}
 
         # Ongoing drag ------------------------------------------------------
         if self.drag is not None:
             region, index, du, dv = self.drag
-            if event.type == 'MOUSEMOVE':
-                if index < len(s.lights):
-                    u, v = mouse_uv(region, event)
-                    lon, lat = render.uv_to_lonlat((u + du) % 1.0, min(max(v + dv, 0.0), 1.0))
-                    light = s.lights[index]
-                    light.lon = lon
-                    light.lat = lat
+            if not session.region_alive(region) or index >= len(s.lights):
+                self.drag = None
+                return {'PASS_THROUGH'}
+            if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
+                u, v = mouse_uv(region, event)
+                lon, lat = render.uv_to_lonlat((u + du) % 1.0, min(max(v + dv, 0.0), 1.0))
+                light = s.lights[index]
+                light.lon = lon
+                light.lat = lat
                 return {'RUNNING_MODAL'}
             if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-                self.drag = None
-                self._push_undo("Move HDRI Light")
+                self._end_drag()
                 return {'RUNNING_MODAL'}
-            if event.type in {'ESC', 'RIGHTMOUSE'}:
-                self.drag = None
-                return {'RUNNING_MODAL'}
-            return {'RUNNING_MODAL'}
+            if event.type in {'WINDOW_DEACTIVATE', 'ESC', 'RIGHTMOUSE'}:
+                self._end_drag()
+                return {'RUNNING_MODAL'} if event.type != 'WINDOW_DEACTIVATE' else {'PASS_THROUGH'}
+            if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+                # The release happened outside Blender: end the old drag and
+                # handle this press normally below.
+                self._end_drag()
+            else:
+                # Never swallow keyboard / other events while dragging.
+                return {'PASS_THROUGH'}
 
         area, region = canvas_under_mouse(context, event)
         if region is None:
@@ -271,10 +274,8 @@ class HDRISTUDIO_OT_canvas_edit(bpy.types.Operator):
                 area.tag_redraw()
             return {'PASS_THROUGH'}
 
-        if event.type in {'ESC'} and event.value == 'PRESS':
-            return self.finish(context)
-        if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
-            return self.finish(context)
+        if event.value == 'PRESS' and event.type in {'ESC', 'RIGHTMOUSE'}:
+            return 'FINISH'
 
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             if event.ctrl:
@@ -315,18 +316,28 @@ class HDRISTUDIO_OT_canvas_edit(bpy.types.Operator):
                 self._push_undo("HDRI Light Intensity")
             return {'RUNNING_MODAL'}
 
-        if event.value == 'PRESS' and event.type in {'X', 'DEL'}:
-            s.lights.remove(s.active_index)
-            s.active_index = min(s.active_index, len(s.lights) - 1)
-            studio.schedule_update(scene, force=True)
-            self._push_undo("Delete HDRI Light")
-            return {'RUNNING_MODAL'}
-        if event.value == 'PRESS' and event.type == 'H':
-            light.enabled = not light.enabled
-            self._push_undo("Toggle HDRI Light")
-            return {'RUNNING_MODAL'}
+        # Shortcuts only act on the light under the cursor, so the Image
+        # Editor's own keys keep working everywhere else.
+        hover = state["hover"]
+        if event.value == 'PRESS' and hover >= 0 and hover < len(s.lights) \
+                and not (event.ctrl or event.alt or event.oskey):
+            if event.type in {'X', 'DEL'}:
+                s.lights.remove(hover)
+                s.active_index = min(s.active_index, len(s.lights) - 1)
+                state["hover"] = -1
+                studio.schedule_update(scene, force=True)
+                self._push_undo("Delete HDRI Light")
+                return {'RUNNING_MODAL'}
+            if event.type == 'H':
+                s.lights[hover].enabled = not s.lights[hover].enabled
+                self._push_undo("Toggle HDRI Light")
+                return {'RUNNING_MODAL'}
 
         return {'PASS_THROUGH'}
+
+
+def is_editing():
+    return session.get(SESSION).running
 
 
 classes = (HDRISTUDIO_OT_canvas_edit,)
@@ -342,7 +353,7 @@ def register():
 
 def unregister():
     global _draw_handle
-    state["stop"] = True
+    session.get(SESSION).reset()
     if _draw_handle is not None:
         bpy.types.SpaceImageEditor.draw_handler_remove(_draw_handle, 'WINDOW')
         _draw_handle = None

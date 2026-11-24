@@ -27,10 +27,12 @@ def _studio_toggles(layout, context):
     row = col.row(align=True)
     row.scale_y = 1.3
     row.operator("hdri_studio.canvas_edit", text="Edit on Canvas",
-                 icon='RESTRICT_SELECT_OFF', depress=canvas.state["editing"])
+                 icon='RESTRICT_SELECT_OFF', depress=canvas.is_editing())
     row.operator("hdri_studio.lightpaint", text="LightPaint",
-                 icon='BRUSH_DATA', depress=lightpaint.state["running"])
-    col.row(align=True).prop(s, "paint_mode", expand=True)
+                 icon='BRUSH_DATA', depress=lightpaint.is_running())
+    row = col.row(align=True)
+    row.prop(s, "paint_mode", expand=True)
+    row.operator("hdri_studio.reset_tools", text="", icon='CANCEL')
 
 
 class HDRIStudioPanel:
@@ -259,7 +261,7 @@ def draw_image_header(self, context):
     row = layout.row(align=True)
     row.label(text="HDRI Studio", icon='LIGHT_AREA')
     row.operator("hdri_studio.canvas_edit", text="Edit", icon='RESTRICT_SELECT_OFF',
-                 depress=canvas.state["editing"])
+                 depress=canvas.is_editing())
     row.menu("HDRISTUDIO_MT_add_light", text="", icon='ADD')
     row.menu("HDRISTUDIO_MT_studio", text="", icon='PRESET')
     row.operator("hdri_studio.update", text="", icon='FILE_REFRESH')

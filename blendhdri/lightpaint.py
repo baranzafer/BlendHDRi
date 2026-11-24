@@ -9,10 +9,10 @@ import bpy
 from bpy_extras import view3d_utils
 from mathutils import Vector
 
-from . import render, studio
+from . import render, session, studio
 from .ops import active_light, new_light
 
-state = {"running": False, "stop": False}
+SESSION = "lightpaint"
 
 HELP = ("HDRI LightPaint  |  LMB (drag): move active light to the clicked spot   "
         "Shift+LMB: new light   1/2/3: Reflection/Illumination/Rim   Esc / RMB: finish")
@@ -62,36 +62,30 @@ def raycast(context, region, rv3d, event):
     return direction, Vector(normal)
 
 
-class HDRISTUDIO_OT_lightpaint(bpy.types.Operator):
+class HDRISTUDIO_OT_lightpaint(session.ModalToolMixin, bpy.types.Operator):
     bl_idname = "hdri_studio.lightpaint"
     bl_label = "LightPaint"
     bl_description = ("Click on your model in the 3D viewport to place the active light "
                       "(reflection / illumination / rim). Run again to stop")
 
-    def invoke(self, context, event):
-        if state["running"]:
-            state["stop"] = True
-            return {'CANCELLED'}
-        state["running"] = True
-        state["stop"] = False
-        self.painting = False
-        context.window_manager.modal_handler_add(self)
-        try:
-            context.workspace.status_text_set(HELP)
-        except Exception:
-            pass
-        studio.tag_redraw()
-        return {'RUNNING_MODAL'}
+    session_name = SESSION
+    status_text = HELP
 
-    def finish(self, context):
-        state["running"] = False
-        state["stop"] = False
+    def tool_start(self, context, event):
+        self.painting = False
+        return True
+
+    def tool_cleanup(self, context):
+        if getattr(self, "painting", False):
+            self.painting = False
+            self._push_undo("LightPaint")
+
+    @staticmethod
+    def _push_undo(msg):
         try:
-            context.workspace.status_text_set(None)
+            bpy.ops.ed.undo_push(message=msg)
         except Exception:
             pass
-        studio.tag_redraw()
-        return {'FINISHED'}
 
     def _apply(self, context, region, rv3d, event, create=False):
         res = raycast(context, region, rv3d, event)
@@ -109,49 +103,56 @@ class HDRISTUDIO_OT_lightpaint(bpy.types.Operator):
             light.lat = lat
         return True
 
-    def modal(self, context, event):
-        if state["stop"]:
-            return self.finish(context)
+    def tool_modal(self, context, event):
+        if event.type == 'TIMER':
+            return {'PASS_THROUGH'}
         s = context.scene.hdri_studio
 
         if self.painting:
-            if event.type == 'MOUSEMOVE':
+            if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
                 area, region, rv3d = view3d_under_mouse(context, event)
                 if region is not None:
                     self._apply(context, region, rv3d, event)
                 return {'RUNNING_MODAL'}
             if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
                 self.painting = False
-                try:
-                    bpy.ops.ed.undo_push(message="LightPaint")
-                except Exception:
-                    pass
+                self._push_undo("LightPaint")
                 return {'RUNNING_MODAL'}
-            return {'RUNNING_MODAL'}
+            if event.type in {'WINDOW_DEACTIVATE', 'ESC', 'RIGHTMOUSE'} or \
+                    (event.type == 'LEFTMOUSE' and event.value == 'PRESS'):
+                # Missed release (button let go outside Blender): stop painting.
+                self.painting = False
+                self._push_undo("LightPaint")
+                if event.type != 'LEFTMOUSE':
+                    return {'PASS_THROUGH'}
+            else:
+                return {'PASS_THROUGH'}
 
         area, region, rv3d = view3d_under_mouse(context, event)
-        if region is None:
+        if region is None or rv3d is None:
             return {'PASS_THROUGH'}
 
         if event.value == 'PRESS':
             if event.type in {'ESC', 'RIGHTMOUSE'}:
-                return self.finish(context)
+                return 'FINISH'
             if event.type in {'ONE', 'TWO', 'THREE'} and not (event.ctrl or event.alt or event.shift):
                 s.paint_mode = {'ONE': 'REFLECTION', 'TWO': 'ILLUMINATION',
                                 'THREE': 'RIM'}[event.type]
                 studio.tag_redraw()
                 return {'RUNNING_MODAL'}
-            if event.type == 'LEFTMOUSE':
+            if event.type == 'LEFTMOUSE' and not (event.ctrl or event.alt):
                 if self._apply(context, region, rv3d, event, create=event.shift):
-                    self.painting = not event.shift
                     if event.shift:
-                        try:
-                            bpy.ops.ed.undo_push(message="LightPaint Add")
-                        except Exception:
-                            pass
+                        self._push_undo("LightPaint Add")
+                    else:
+                        self.painting = True
                     return {'RUNNING_MODAL'}
                 return {'PASS_THROUGH'}
         return {'PASS_THROUGH'}
+
+
+def is_running():
+    return session.get(SESSION).running
 
 
 classes = (HDRISTUDIO_OT_lightpaint,)
@@ -163,6 +164,6 @@ def register():
 
 
 def unregister():
-    state["stop"] = True
+    session.get(SESSION).reset()
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
