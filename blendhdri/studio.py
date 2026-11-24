@@ -22,6 +22,9 @@ INTERNAL_IMAGES = (CANVAS_NAME, EXPORT_NAME) + WORLD_IMAGES
 _pending = set()
 _bg_cache = {}
 
+# Preview spheres shown in the studio interface (computed lazily, debounced)
+preview = {"version": 0, "chrome": None, "diffuse": None, "env": None, "front": None}
+
 
 def settings(scene=None):
     scene = scene or bpy.context.scene
@@ -166,6 +169,33 @@ def _next_world_image(width):
     return img
 
 
+def front_lon(scene):
+    """Longitude that faces the camera (front of the subject)."""
+    import math
+    cam = scene.camera
+    if cam is not None:
+        from mathutils import Vector
+        fwd = cam.matrix_world.to_3x3() @ Vector((0.0, 0.0, -1.0))
+        if fwd.xy.length > 1e-6:
+            return math.atan2(-fwd.y, -fwd.x)
+    return -math.pi / 2  # Blender front view looks along +Y, camera at -Y
+
+
+def _compute_spheres():
+    env = preview.get("env")
+    if env is not None:
+        try:
+            chrome, diffuse = render.preview_spheres(env, 72, preview["front"])
+            preview["chrome"], preview["diffuse"] = chrome, diffuse
+            preview["version"] += 1
+        except Exception:
+            import traceback
+            traceback.print_exc()
+        preview["env"] = None
+        tag_redraw()
+    return None
+
+
 def update_preview(scene=None):
     scene = scene or bpy.context.scene
     s = settings(scene)
@@ -173,6 +203,11 @@ def update_preview(scene=None):
     width = int(s.preview_res)
     arr = render_array(scene, width)
     _write_image(img, arr)
+    preview["env"] = arr
+    preview["front"] = front_lon(scene)
+    if bpy.app.timers.is_registered(_compute_spheres):
+        bpy.app.timers.unregister(_compute_spheres)
+    bpy.app.timers.register(_compute_spheres, first_interval=0.15)
     world_img = _next_world_image(width)
     _write_image(world_img, arr)
     world = ensure_world(scene, image=world_img)
@@ -407,5 +442,6 @@ def unregister():
                     (bpy.app.handlers.redo_post, _on_undo)):
         if fn in lst:
             lst.remove(fn)
-    if bpy.app.timers.is_registered(_flush):
-        bpy.app.timers.unregister(_flush)
+    for fn in (_flush, _compute_spheres):
+        if bpy.app.timers.is_registered(fn):
+            bpy.app.timers.unregister(fn)

@@ -1,6 +1,6 @@
 import bpy
 
-from . import canvas, lightpaint, studio
+from . import canvas, gui, lightpaint, studio
 
 
 class HDRISTUDIO_UL_lights(bpy.types.UIList):
@@ -26,10 +26,15 @@ def _studio_toggles(layout, context):
     col = layout.column(align=True)
     row = col.row(align=True)
     row.scale_y = 1.3
-    row.operator("hdri_studio.canvas_edit", text="Edit on Canvas",
-                 icon='RESTRICT_SELECT_OFF', depress=canvas.is_editing())
+    row.prop(s, "canvas_interaction", text="Canvas Editing", toggle=True,
+             icon='RESTRICT_SELECT_OFF')
     row.operator("hdri_studio.lightpaint", text="LightPaint",
                  icon='BRUSH_DATA', depress=lightpaint.is_running())
+    row = col.row(align=True)
+    row.prop(s, "use_custom_ui", toggle=True, icon='WINDOW')
+    row.prop(s, "ui_language", text="")
+    row = col.row(align=True)
+    row.prop(s, "canvas_tool", expand=True)
     row = col.row(align=True)
     row.prop(s, "paint_mode", expand=True)
     row.operator("hdri_studio.reset_tools", text="", icon='CANCEL')
@@ -234,6 +239,16 @@ class _Export(HDRIStudioPanel):
 _BASES = (_Main, _Lights, _LightProps, _AreaLights, _Background, _Display, _Export)
 
 
+def _image_poll(base):
+    base_poll = getattr(base, "poll", None)
+
+    def poll(cls, context):
+        if gui.is_studio_space(context.space_data):
+            return False
+        return base_poll.__func__(cls, context) if base_poll else True
+    return poll
+
+
 def _make_panels():
     panels = []
     for space, tag in (('IMAGE_EDITOR', "IMAGE"), ('VIEW_3D', "VIEW3D")):
@@ -243,6 +258,8 @@ def _make_panels():
             attrs = {"bl_space_type": space, "bl_idname": name}
             if base is not _Main:
                 attrs["bl_parent_id"] = parent
+            if space == 'IMAGE_EDITOR':
+                attrs["poll"] = classmethod(_image_poll(base))
             cls = type(name, (base, bpy.types.Panel), attrs)
             if base is _Main:
                 parent = name
@@ -260,8 +277,9 @@ def draw_image_header(self, context):
     layout.separator()
     row = layout.row(align=True)
     row.label(text="HDRI Studio", icon='LIGHT_AREA')
-    row.operator("hdri_studio.canvas_edit", text="Edit", icon='RESTRICT_SELECT_OFF',
-                 depress=canvas.is_editing())
+    st = context.scene.hdri_studio
+    row.prop(st, "use_custom_ui", text="", icon='WINDOW')
+    row.prop(st, "canvas_interaction", text="", icon='RESTRICT_SELECT_OFF')
     row.menu("HDRISTUDIO_MT_add_light", text="", icon='ADD')
     row.menu("HDRISTUDIO_MT_studio", text="", icon='PRESET')
     row.operator("hdri_studio.update", text="", icon='FILE_REFRESH')

@@ -9,7 +9,7 @@ OpenEXR / Radiance HDR.
 bl_info = {
     "name": "BlendHDRi - HDRI Studio",
     "author": "BlendHDRi contributors",
-    "version": (0, 2, 1),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "Image Editor / 3D Viewport > Sidebar > HDRI Studio, Window > HDRI Studio Editor",
     "description": "Build studio lighting HDRIs with softboxes, LightPaint and EXR export",
@@ -18,14 +18,14 @@ bl_info = {
 
 if "bpy" in locals():
     import importlib
-    for _m in (render, presets, session, props, studio, ops, canvas, lightpaint, ui):  # noqa: F821
+    for _m in (render, presets, session, props, studio, ops, canvas, gui_kit, gui, gui_ops, lightpaint, ui):  # noqa: F821
         importlib.reload(_m)
 else:
-    from . import render, presets, session, props, studio, ops, canvas, lightpaint, ui
+    from . import render, presets, session, props, studio, ops, canvas, gui_kit, gui, gui_ops, lightpaint, ui
 
 import bpy  # noqa: E402,F401
 
-_modules = (session, props, studio, ops, canvas, lightpaint, ui)
+_modules = (session, props, studio, ops, canvas, gui, gui_ops, lightpaint, ui)
 
 
 def register():

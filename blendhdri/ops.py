@@ -4,19 +4,11 @@ import os
 import bpy
 from bpy.props import EnumProperty, FloatProperty, StringProperty, BoolProperty
 from bpy_extras.io_utils import ExportHelper
-from mathutils import Vector
 
 from . import presets, render, studio
 
 
-def front_lon(scene):
-    """Longitude that faces the camera (front of the subject)."""
-    cam = scene.camera
-    if cam is not None:
-        fwd = cam.matrix_world.to_3x3() @ Vector((0.0, 0.0, -1.0))
-        if fwd.xy.length > 1e-6:
-            return math.atan2(-fwd.y, -fwd.x)
-    return -math.pi / 2  # Blender front view looks along +Y, camera at -Y
+front_lon = studio.front_lon
 
 
 def new_light(scene, preset='SOFTBOX_LARGE', az=30.0, el=25.0, lon=None, lat=None):
@@ -283,7 +275,21 @@ class HDRISTUDIO_OT_open_editor(bpy.types.Operator):
             space.ui_mode = 'VIEW'
         except Exception:
             pass
-        space.show_region_ui = True
+        custom = bpy.context.scene.hdri_studio.use_custom_ui
+        space.show_region_ui = not custom
+        try:
+            space.show_region_toolbar = False
+        except Exception:
+            pass
+        # Fit once the new area has its final size.
+        def fit():
+            try:
+                from . import gui_ops
+                gui_ops.fit_area(target)
+            except Exception:
+                pass
+            return None
+        bpy.app.timers.register(fit, first_interval=0.15)
 
     def _pop_out(self, context, target):
         """Move the freshly split area into its own window."""

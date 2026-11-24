@@ -12,18 +12,25 @@ tıklayarak ışığı yansımanın/aydınlatmanın düşeceği yere konumlandı
 
 ## Özellikler
 
-- **Studio Editor** – Shader Editor açar gibi ekranı bölerek açılan canlı HDRI
-  tuvali (Image Editor tabanlı). Işıklar tuval üzerinde çerçeve ve isimle çizilir.
-- **Tuvalde düzenleme** (`Edit on Canvas`)
-  - Sol tık: ışığı seç / sürükle
+- **Studio arayüzü** (v0.3) – Shader Editor açar gibi ekranı bölerek açılan
+  editörde, N paneli yerine GPU ile çizilen kendi arayüzü (Mini CAD tarzı):
+  - **Üst şerit:** kurulumlar, kaydet, canlı güncelleme, önizleme çözünürlüğü,
+    dünya, viewport, sığdır, *Klasik* (N paneline dönüş) ve dışa aktarma.
+  - **Araç paleti:** Seç/Taşı, Ölçekle, Döndür, Tıkla-ekle ve LightPaint araçları,
+    12 hazır ışık, yerleşim modu ve tuval seçenekleri (ızgara, etiket, 5° yakalama).
+    Paleti başlığından sürükleyip katlayabilirsiniz.
+  - **Işık denetçisi:** şekil, karışım, konum, boyut, kenar, parlaklık, renk ve
+    Kelvin, çıktı (HDRI / Area / İkisi), doku. Sürgüler sürüklenir (`Shift`: hassas,
+    `Ctrl`: adımlı) ya da tekerlekle değişir.
+  - **Katman şeridi:** ışık kartları, göz simgesiyle gizle/göster, sıralama, sağ tık menüsü.
+  - **Krom / mat küre önizlemesi** her değişiklikte güncellenir.
+  - Arayüz Blender'in dil ayarına göre Türkçe ya da İngilizce olur; ayarlardan değiştirilebilir.
+- **Tuvalde düzenleme** (her zaman açık, ayrı bir mod gerekmez)
+  - Sol tık: ışığı seç / sürükle (aktif araca göre taşı, ölçekle, döndür)
   - `Ctrl` + sol tık: tıklanan yere yeni ışık ekle
   - `Ctrl` + tekerlek: boyut, `Shift` + tekerlek: döndürme, `Alt` + tekerlek: parlaklık
-  - `H`: gizle/göster, `X` / `Del`: sil, `Esc` / sağ tık: bitir
-- **LightPaint** – 3B görünümde modele tıklayın/sürükleyin; aktif ışık
-  - *Reflection*: yansıması tıkladığınız noktada görünecek şekilde,
-  - *Illumination*: yüzeyi tam karşıdan aydınlatacak şekilde,
-  - *Rim*: yüzeyin arkasından kenar ışığı verecek şekilde yerleşir.
-  - `Shift` + tık yeni ışık ekler, `1/2/3` mod değiştirir.
+  - Fare bir ışığın üzerindeyken `H` gizler/gösterir, `X` / `Del` siler; sağ tık menü açar
+  - Sürüklerken `Esc` / sağ tık değişikliği geri alır
 - **Hazır ışıklar**: Large / Square / Small Softbox, Strip, Horizontal Strip,
   Octabox, Round Softbox, Ring Light, Overhead Panel, Hard Spot, Sun, Window,
   Black Flag, Reflector Card.
@@ -78,6 +85,12 @@ Blender **4.2 veya üstü** (5.x ile test edildi).
 > görünümde çalışır: World iki görüntü arasında dönüşümlü güncellenir, böylece
 > Cycles her değişiklikte yeni HDRI'yi yükler.
 
+> Kararlılık: Tuval etkileşimi sürekli açık bir modal yerine keymap ile
+> çalışır; sürükleme yalnızca fare basılıyken yaşar. LightPaint'in durumu
+> zamanlayıcıyla takip edilir; Blender bir operatörü kapatırsa buton
+> kendiliğinden normale döner. Gerekirse N panelindeki ✕ (*Reset Interactive
+> Tools*) her şeyi sıfırlar.
+
 > Not: Tuval görüntüsü .blend dosyasına kaydedilmez; dosya açıldığında ışık
 > ayarlarından otomatik olarak yeniden üretilir. Kalıcı bir dosya için Export
 > kullanın.
@@ -97,6 +110,10 @@ Blender **4.2 veya üstü** (5.x ile test edildi).
 | `blendhdri/studio.py` | Tuval görüntüsü, World node ağacı, canlı güncelleme |
 | `blendhdri/presets.py` | Hazır ışıklar ve stüdyo kurulumları |
 | `blendhdri/ops.py` | Operatörler (ekle/sil, kurulum, editör açma, dışa aktarma) |
-| `blendhdri/canvas.py` | Tuval üstü çizim ve interaktif düzenleme |
+| `blendhdri/canvas.py` | Tuval üstü ışık çizimi ve seçme |
+| `blendhdri/gui_kit.py` | GPU widget kiti (çizim + tıklama hedefleri tek kaynaktan) |
+| `blendhdri/gui.py` | Studio arayüzü yerleşimi, Türkçe/İngilizce metinler |
+| `blendhdri/gui_ops.py` | Keymap tabanlı tıklama / sürükleme / tekerlek / kısayol işlemleri |
+| `blendhdri/session.py` | Modal araçlar için güvenli oturum (kalp atışı, sıfırlama) |
 | `blendhdri/lightpaint.py` | 3B görünümde tıkla-yerleştir |
 | `blendhdri/ui.py` | Paneller, liste, başlık menüleri |
