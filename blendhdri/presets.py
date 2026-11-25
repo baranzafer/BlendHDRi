@@ -48,7 +48,16 @@ LIGHT_PRESETS = {
         intensity=1500.0, use_temperature=True, temperature=5500.0)),
     'WINDOW': ("Window", "Window light with soft vertical gradient", 'MOD_LATTICE', dict(
         shape='RECT', width=D(35), height=D(50), softness=0.08, roundness=0.0,
-        gradient=0.35, intensity=5.0, use_temperature=True, temperature=6500.0)),
+        gradient_type='LINEAR', gradient_angle=D(90), gradient_value_a=0.65,
+        gradient_value_b=1.35, intensity=5.0, use_temperature=True, temperature=6500.0)),
+    'STRIP_FADE': ("Fade Strip", "Strip light fading out towards the bottom", 'IPO_EASE_OUT', dict(
+        shape='RECT', width=D(9), height=D(80), softness=0.15, roundness=0.1,
+        gradient_type='LINEAR', gradient_angle=D(90), gradient_interp='SMOOTH',
+        gradient_value_a=0.05, gradient_value_b=1.0, intensity=14.0)),
+    'BEAUTY_DISH': ("Beauty Dish", "Round light with a bright rim and a darker centre", 'MESH_CIRCLE', dict(
+        shape='ELLIPSE', width=D(30), height=D(30), softness=0.12,
+        gradient_type='RADIAL', gradient_offset=0.2, gradient_scale=0.8,
+        gradient_value_a=0.55, gradient_value_b=1.25, intensity=9.0)),
     'FLAG': ("Black Flag", "Blocks light behind it", 'SNAP_FACE', dict(
         shape='RECT', blend='OVER', width=D(30), height=D(45), softness=0.05,
         intensity=0.0, color=(0.0, 0.0, 0.0))),

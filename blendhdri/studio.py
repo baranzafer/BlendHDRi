@@ -337,6 +337,10 @@ def _sync_one(s, coll, light):
     data.size = sx
     data.size_y = sy
     rgb = d.rgb
+    if d.grad_type != 'NONE':
+        # an area light cannot show a gradient: use its average colour
+        avg = [(a + b) * 0.5 for a, b in zip(d.grad_a, d.grad_b)]
+        rgb = tuple(c * g for c, g in zip(rgb, avg))
     peak = max(rgb) if max(rgb) > 0 else 0.0
     data.color = tuple(c / peak for c in rgb) if peak > 0 else (1.0, 1.0, 1.0)
     # Radiance L of an area light with power P and area A is P / (pi * A)

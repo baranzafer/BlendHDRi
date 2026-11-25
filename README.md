@@ -30,13 +30,25 @@ tıklayarak ışığı yansımanın/aydınlatmanın düşeceği yere konumlandı
   - Sürüklerken `Esc` / sağ tık değişikliği geri alır
 - **Hazır ışıklar**: Large / Square / Small Softbox, Strip, Horizontal Strip,
   Octabox, Round Softbox, Ring Light, Overhead Panel, Hard Spot, Sun, Window,
-  Black Flag, Reflector Card.
+  Black Flag, Reflector Card, Fade Strip, Beauty Dish.
 - **Hazır stüdyo kurulumları**: Three Point, Product White, Product Dark,
   Car Studio, Portrait, Dramatic Rim, Outdoor Sky (aktif kameraya göre yönlenir).
 - **Işık parametreleri**: şekil (dikdörtgen / yuvarlak / octabox / ring),
-  konum (boylam/enlem), dönüş, açısal genişlik/yükseklik, kenar yumuşaklığı,
-  köşe yuvarlaklığı, merkez falloff, lineer gradyan, renk, Kelvin sıcaklığı,
-  yoğunluk, opaklık ve karışım modu (Add / Over / Multiply — bayrak ve jel için).
+  konum (boylam/enlem), dönüş, açısal genişlik/yükseklik, renk, Kelvin
+  sıcaklığı, yoğunluk, opaklık ve karışım modu (Add / Over / Multiply — bayrak
+  ve jel için).
+  - **Edge Softness 0–4**: 1'e kadar kenar içeri doğru yumuşar; 1'in üstünde
+    ışık çerçevesinin dışına da taşar (parıltı).
+  - **Roundness 0–2**: 0 kare, 1 elips, 2'ye doğru kenarlar içe kıvrılır
+    (baklava / yıldız).
+  - **Center Falloff −1–8**: pozitif değerler ortada sıcak nokta (1'in üstünde
+    daralır), negatif değerler kenarı parlatır.
+- **Gradyan** (ayrı *Gradient* paneli): Linear, Reflected, Radial ve Angular;
+  açı, ofset, yayılma (*Spread*), orta nokta, geçiş tipi (Linear / Smooth /
+  Constant) ve iki renk durağı (renk + güç). *Swap* renkleri değiştirir,
+  *Reset* varsayılanlara döner. Area ışıklarda gradyanın ortalama rengi kullanılır.
+
+![options](docs/light_options.png)
 - **Arka plan**: düz renk, gök/ufuk/zemin gradyanı veya mevcut bir HDRI
   görüntüsünün üzerine ışık ekleme.
 - **Canlı dünya**: `HDRI Studio World` otomatik oluşturulur; *Preview in Viewport*

@@ -137,7 +137,6 @@ class _LightProps(HDRIStudioPanel):
         if l.shape == 'RING':
             col.prop(l, "ring_inner")
         col.prop(l, "falloff")
-        col.prop(l, "gradient")
 
         col = layout.column(align=True)
         col.prop(l, "color")
@@ -155,6 +154,43 @@ class _LightProps(HDRIStudioPanel):
             col.template_ID(l, "texture", open="image.open")
             if l.output != 'HDRI':
                 col.label(text="Textures only affect the HDRI", icon='INFO')
+
+
+class _Gradient(HDRIStudioPanel):
+    bl_label = "Gradient"
+
+    @classmethod
+    def poll(cls, context):
+        s = context.scene.hdri_studio
+        return 0 <= s.active_index < len(s.lights)
+
+    def draw(self, context):
+        layout = self.layout
+        s = context.scene.hdri_studio
+        l = s.lights[s.active_index]
+        layout.row().prop(l, "gradient_type", expand=True)
+        if l.gradient_type == 'NONE':
+            return
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        col = layout.column(align=True)
+        if l.gradient_type in {'LINEAR', 'REFLECTED', 'ANGULAR'}:
+            col.prop(l, "gradient_angle")
+        col.prop(l, "gradient_offset")
+        col.prop(l, "gradient_scale")
+        col.prop(l, "gradient_midpoint")
+        layout.prop(l, "gradient_interp")
+
+        for key, label in (("a", "Start" if l.gradient_type != 'RADIAL' else "Centre"),
+                           ("b", "End" if l.gradient_type != 'RADIAL' else "Edge")):
+            row = layout.row(align=True)
+            row.prop(l, f"gradient_color_{key}", text=label)
+            row.prop(l, f"gradient_value_{key}", text="")
+        row = layout.row(align=True)
+        row.operator("hdri_studio.gradient_swap", icon='ARROW_LEFTRIGHT')
+        row.operator("hdri_studio.gradient_reset", icon='LOOP_BACK')
+        if l.output != 'HDRI':
+            layout.label(text="Area lights use the gradient's average colour", icon='INFO')
 
 
 class _AreaLights(HDRIStudioPanel):
@@ -235,7 +271,7 @@ class _Export(HDRIStudioPanel):
         layout.operator("hdri_studio.export", icon='EXPORT')
 
 
-_BASES = (_Main, _Lights, _LightProps, _AreaLights, _Background, _Display, _Export)
+_BASES = (_Main, _Lights, _LightProps, _Gradient, _AreaLights, _Background, _Display, _Export)
 
 
 def _make_panels():

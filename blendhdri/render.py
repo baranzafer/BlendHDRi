@@ -92,6 +92,8 @@ class LightData:
         "shape", "blend", "lon", "lat", "roll", "width", "height",
         "softness", "roundness", "ring_inner", "falloff", "gradient",
         "rgb", "opacity", "tex",
+        "grad_type", "grad_angle", "grad_offset", "grad_scale", "grad_mid",
+        "grad_interp", "grad_a", "grad_b",
     )
 
     def __init__(self, **kw):
@@ -110,6 +112,21 @@ class LightData:
         self.rgb = kw.get("rgb", (1.0, 1.0, 1.0))
         self.opacity = kw.get("opacity", 1.0)
         self.tex = kw.get("tex", None)  # (h, w, 4) float array or None
+        self.grad_type = kw.get("grad_type", 'NONE')
+        self.grad_angle = kw.get("grad_angle", math.pi / 2)
+        self.grad_offset = kw.get("grad_offset", 0.0)
+        self.grad_scale = kw.get("grad_scale", 1.0)
+        self.grad_mid = kw.get("grad_mid", 0.5)
+        self.grad_interp = kw.get("grad_interp", 'LINEAR')
+        self.grad_a = kw.get("grad_a", (1.0, 1.0, 1.0))
+        self.grad_b = kw.get("grad_b", (0.0, 0.0, 0.0))
+        if self.grad_type == 'NONE' and self.gradient != 0.0:
+            # legacy single value: brightness 1-g at the bottom, 1+g at the top
+            g = self.gradient
+            self.grad_type = 'LINEAR'
+            self.grad_angle = math.pi / 2
+            self.grad_a = (1.0 - g,) * 3
+            self.grad_b = (1.0 + g,) * 3
 
     @classmethod
     def from_prop(cls, p):
@@ -119,12 +136,21 @@ class LightData:
             rgb = tuple(a * b for a, b in zip(rgb, k))
         if p.blend != 'MULTIPLY':
             rgb = tuple(c * p.intensity for c in rgb)
+        grad = {}
+        gtype = getattr(p, "gradient_type", 'NONE')
+        if gtype != 'NONE':
+            grad = dict(
+                grad_type=gtype, grad_angle=p.gradient_angle,
+                grad_offset=p.gradient_offset, grad_scale=p.gradient_scale,
+                grad_mid=p.gradient_midpoint, grad_interp=p.gradient_interp,
+                grad_a=tuple(c * p.gradient_value_a for c in p.gradient_color_a),
+                grad_b=tuple(c * p.gradient_value_b for c in p.gradient_color_b))
         return cls(
             shape=p.shape, blend=p.blend, lon=p.lon, lat=p.lat, roll=p.roll,
             width=p.width, height=p.height, softness=p.softness,
             roundness=p.roundness, ring_inner=p.ring_inner,
-            falloff=p.falloff, gradient=p.gradient, rgb=rgb,
-            opacity=p.opacity,
+            falloff=p.falloff, gradient=p.gradient if gtype == 'NONE' else 0.0,
+            rgb=rgb, opacity=p.opacity, **grad,
         )
 
     # Shape helpers --------------------------------------------------------
@@ -133,13 +159,23 @@ class LightData:
         h = min(max(self.height, 1e-4), MAX_LIGHT_ANGLE)
         return math.tan(w * 0.5), math.tan(h * 0.5)
 
+    def edge_extent(self):
+        """How far (in normalised light units) the soft edge reaches outwards."""
+        return 1.0 + max(0.0, self.softness - 1.0) * 0.5
+
     def angular_radius(self):
         tw, th = self.tan_half()
-        return math.atan(math.sqrt(tw * tw + th * th))
+        e = self.edge_extent()
+        # include the bloom of very soft edges; the light is a cap < 90°
+        return min(math.atan(math.sqrt(tw * tw + th * th) * e), math.pi / 2)
 
     def rect_exponent(self):
-        # roundness 0 -> almost square corners, 1 -> ellipse
-        return 2.0 + (1.0 - max(0.0, min(1.0, self.roundness))) * 38.0
+        # roundness 0 -> almost square corners, 1 -> ellipse,
+        # 2 -> sides curved inwards (astroid-like)
+        r = max(0.0, min(2.0, self.roundness))
+        if r <= 1.0:
+            return 2.0 + (1.0 - r) * 38.0
+        return 2.0 - (r - 1.0) * 1.5
 
 
 OCT_ANGLES = [k * math.pi / 4.0 + math.pi / 8.0 for k in range(8)]
@@ -149,8 +185,8 @@ OCT_NORM = 1.0 / math.cos(math.pi / 8.0)
 def shape_distance(shape, nx, ny, exponent):
     """Normalised distance: 1.0 on the shape boundary."""
     if shape == 'RECT':
-        ax = np.minimum(np.abs(nx), 4.0)
-        ay = np.minimum(np.abs(ny), 4.0)
+        ax = np.minimum(np.abs(nx), 8.0)
+        ay = np.minimum(np.abs(ny), 8.0)
         return (ax ** exponent + ay ** exponent) ** (1.0 / exponent)
     if shape == 'OCTAGON':
         d = None
@@ -202,10 +238,24 @@ def light_mask(light, dx, dy, dz):
 
     r = shape_distance(light.shape, nx, ny, light.rect_exponent())
     s = max(light.softness, 1e-3)
-    mask = _smooth(1.0, 1.0 - s, r)
+    # Up to 1 the fade happens inside the outline (as before); above 1 it
+    # also extends outside, so the light blooms.
+    outer = light.edge_extent()
+    inner_edge = 1.0 - min(s, 1.0)
+    mask = _smooth(outer, inner_edge, r)
+    if light.shape == 'RECT':
+        # Very soft rectangles: fade each axis separately (like a real
+        # softbox) instead of along the square distance, which shows an "X"
+        # along the diagonals. Blended in above softness 0.5 so harder
+        # lights look exactly as before.
+        w = min(max((s - 0.5) / 0.5, 0.0), 1.0) * (1.0 - min(light.roundness, 1.0))
+        if w > 0.0:
+            axis = _smooth(outer, inner_edge, np.abs(nx)) * _smooth(outer, inner_edge, np.abs(ny))
+            mask = mask * (1.0 - w) + axis * w
     if light.shape == 'RING':
         inner = max(0.0, min(0.98, light.ring_inner))
-        mask = mask * _smooth(inner - s * 0.5, inner + s * 0.5, r)
+        rs = min(s, 1.0)
+        mask = mask * _smooth(inner - rs * 0.5, inner + rs * 0.5, r)
     mask = np.where(front, mask, 0.0)
 
     tex_rgb = None
@@ -215,13 +265,54 @@ def light_mask(light, dx, dy, dz):
         mask = mask * t[..., 3]
 
     profile = None
-    if light.falloff > 0.0:
-        rr = np.clip(np.sqrt(nx * nx + ny * ny), 0.0, 1.0)
-        profile = 1.0 - light.falloff * rr * rr
-    if light.gradient != 0.0:
-        g = np.clip(1.0 + light.gradient * np.clip(ny, -1.0, 1.0), 0.0, 2.0)
-        profile = g if profile is None else profile * g
+    f = light.falloff
+    if f != 0.0:
+        rr2 = np.clip(nx * nx + ny * ny, 0.0, 1.0)
+        if f <= 1.0:
+            profile = 1.0 - f * rr2           # f < 0: brighter towards the edge
+        else:
+            profile = (1.0 - rr2) ** f        # tighter hot spot
+
+    grad_rgb = gradient_rgb(light, nx, ny)
+    if grad_rgb is not None:
+        tex_rgb = grad_rgb if tex_rgb is None else tex_rgb * grad_rgb
     return mask, profile, tex_rgb
+
+
+def gradient_t(kind, angle, offset, scale, mid, interp, nx, ny):
+    """Gradient parameter 0..1 in light space.
+
+    ``nx`` runs to the light's left as seen on the canvas, so canvas X is -nx.
+    """
+    X, Y = -nx, ny
+    scale = max(scale, 1e-3)
+    ca, sa = math.cos(angle), math.sin(angle)
+    if kind == 'LINEAR':
+        t = 0.5 + 0.5 * ((X * ca + Y * sa) - offset) / scale
+    elif kind == 'REFLECTED':
+        t = np.abs((X * ca + Y * sa) - offset) / scale
+    elif kind == 'RADIAL':
+        t = (np.sqrt(X * X + Y * Y) - offset) / scale
+    else:  # ANGULAR
+        t = ((np.arctan2(Y, X) - angle) / TAU + offset) % 1.0 / scale
+    t = np.clip(t, 0.0, 1.0)
+    if abs(mid - 0.5) > 1e-4:
+        t = t ** (math.log(0.5) / math.log(min(max(mid, 0.01), 0.99)))
+    if interp == 'SMOOTH':
+        t = t * t * (3.0 - 2.0 * t)
+    elif interp == 'CONSTANT':
+        t = (t >= 0.5).astype(np.float64)
+    return t
+
+
+def gradient_rgb(light, nx, ny):
+    if light.grad_type == 'NONE':
+        return None
+    t = gradient_t(light.grad_type, light.grad_angle, light.grad_offset, light.grad_scale,
+                   light.grad_mid, light.grad_interp, nx, ny)[..., None]
+    a = np.array(light.grad_a, dtype=np.float64)
+    b = np.array(light.grad_b, dtype=np.float64)
+    return a * (1.0 - t) + b * t
 
 
 # ---------------------------------------------------------------------------

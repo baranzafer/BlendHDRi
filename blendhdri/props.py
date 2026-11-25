@@ -73,20 +73,68 @@ class HDRIStudioLight(PropertyGroup):
         max=math.radians(170), update=_changed)
 
     softness: FloatProperty(
-        name="Edge Softness", description="Width of the soft edge (0 = hard edge)",
-        default=0.1, min=0.0, max=1.0, subtype='FACTOR', update=_changed)
+        name="Edge Softness",
+        description=("Width of the soft edge. 0 = hard edge, 1 = fades from the centre, "
+                     "above 1 the light also blooms beyond its outline"),
+        default=0.1, min=0.0, max=4.0, soft_max=2.0, update=_changed)
     roundness: FloatProperty(
-        name="Roundness", description="Corner roundness of rectangular lights",
-        default=0.05, min=0.0, max=1.0, subtype='FACTOR', update=_changed)
+        name="Roundness",
+        description=("Corner shape of rectangular lights: 0 = square, 1 = ellipse, "
+                     "above 1 the sides curve inwards (diamond / star)"),
+        default=0.05, min=0.0, max=2.0, update=_changed)
     ring_inner: FloatProperty(
         name="Ring Inner Size", default=0.7, min=0.0, max=0.98,
         subtype='FACTOR', update=_changed)
     falloff: FloatProperty(
-        name="Center Falloff", description="Darken towards the edge (hot spot in the middle)",
-        default=0.0, min=0.0, max=1.0, subtype='FACTOR', update=_changed)
+        name="Center Falloff",
+        description=("Brightness change from the centre to the edge. Positive = hot spot "
+                     "in the middle (above 1 it gets tighter), negative = brighter edges"),
+        default=0.0, min=-1.0, max=8.0, soft_max=4.0, update=_changed)
     gradient: FloatProperty(
-        name="Gradient", description="Linear brightness gradient across the light (top/bottom)",
+        name="Gradient (legacy)", options={'HIDDEN'},
+        description="Old single-value gradient, converted to a Linear gradient",
         default=0.0, min=-1.0, max=1.0, update=_changed)
+
+    # Gradient -------------------------------------------------------------
+    gradient_type: EnumProperty(
+        name="Gradient", default='NONE', update=_changed,
+        items=[
+            ('NONE', "None", "No gradient"),
+            ('LINEAR', "Linear", "Colour A to colour B along a direction"),
+            ('REFLECTED', "Reflected", "Colour A in the middle, colour B towards both sides"),
+            ('RADIAL', "Radial", "Colour A in the centre, colour B at the edge"),
+            ('ANGULAR', "Angular", "Colour A to colour B around the centre (conic sweep)"),
+        ])
+    gradient_angle: FloatProperty(
+        name="Angle", subtype='ANGLE', default=math.radians(90),
+        description="Direction of the gradient (90° = bottom to top on the canvas)",
+        update=_changed)
+    gradient_offset: FloatProperty(
+        name="Offset", default=0.0, min=-2.0, max=2.0, soft_min=-1.0, soft_max=1.0,
+        description="Shift the gradient across the light", update=_changed)
+    gradient_scale: FloatProperty(
+        name="Spread", default=1.0, min=0.02, max=8.0, soft_max=3.0,
+        description="Length of the transition (smaller = sharper)", update=_changed)
+    gradient_midpoint: FloatProperty(
+        name="Midpoint", default=0.5, min=0.01, max=0.99, subtype='FACTOR',
+        description="Where the two colours meet", update=_changed)
+    gradient_interp: EnumProperty(
+        name="Interpolation", default='LINEAR', update=_changed,
+        items=[('LINEAR', "Linear", "Even blend"),
+               ('SMOOTH', "Smooth", "Eased blend (smoothstep)"),
+               ('CONSTANT', "Constant", "Hard split at the midpoint")])
+    gradient_color_a: FloatVectorProperty(
+        name="Color A", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0),
+        min=0.0, soft_max=1.0, update=_changed)
+    gradient_value_a: FloatProperty(
+        name="Strength A", default=1.0, min=0.0, soft_max=4.0, update=_changed,
+        description="Brightness multiplier at the start of the gradient")
+    gradient_color_b: FloatVectorProperty(
+        name="Color B", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0),
+        min=0.0, soft_max=1.0, update=_changed)
+    gradient_value_b: FloatProperty(
+        name="Strength B", default=0.0, min=0.0, soft_max=4.0, update=_changed,
+        description="Brightness multiplier at the end of the gradient")
 
     intensity: FloatProperty(
         name="Intensity", default=5.0, min=0.0, soft_max=100.0, update=_changed)

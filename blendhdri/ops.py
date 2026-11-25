@@ -398,6 +398,45 @@ class HDRISTUDIO_OT_export(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 
+class HDRISTUDIO_OT_gradient_swap(bpy.types.Operator):
+    bl_idname = "hdri_studio.gradient_swap"
+    bl_label = "Swap"
+    bl_description = "Swap the start and end colours of the gradient"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return active_light(context.scene) is not None
+
+    def execute(self, context):
+        l = active_light(context.scene)
+        ca, cb = tuple(l.gradient_color_a), tuple(l.gradient_color_b)
+        va, vb = l.gradient_value_a, l.gradient_value_b
+        l.gradient_color_a, l.gradient_color_b = cb, ca
+        l.gradient_value_a, l.gradient_value_b = vb, va
+        return {'FINISHED'}
+
+
+class HDRISTUDIO_OT_gradient_reset(bpy.types.Operator):
+    bl_idname = "hdri_studio.gradient_reset"
+    bl_label = "Reset"
+    bl_description = "Reset the gradient settings to their defaults"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return active_light(context.scene) is not None
+
+    def execute(self, context):
+        l = active_light(context.scene)
+        for key in ("gradient_angle", "gradient_offset", "gradient_scale", "gradient_midpoint",
+                    "gradient_interp", "gradient_color_a", "gradient_value_a",
+                    "gradient_color_b", "gradient_value_b"):
+            l.property_unset(key)
+        studio.schedule_update(context.scene, force=True)
+        return {'FINISHED'}
+
+
 # ---------------------------------------------------------------------------
 # User presets
 # ---------------------------------------------------------------------------
@@ -630,6 +669,8 @@ classes = (
     HDRISTUDIO_OT_open_editor,
     HDRISTUDIO_OT_viewport_preview,
     HDRISTUDIO_OT_export,
+    HDRISTUDIO_OT_gradient_swap,
+    HDRISTUDIO_OT_gradient_reset,
     HDRISTUDIO_OT_save_light_preset,
     HDRISTUDIO_OT_save_studio_preset,
     HDRISTUDIO_OT_add_user_light,
