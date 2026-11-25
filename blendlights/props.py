@@ -123,21 +123,23 @@ class LightStudioLight(PropertyGroup):
     shape: EnumProperty(name="Shape", items=SHAPES, default='RECT', update=_tex_changed)
     softness: FloatProperty(
         name="Edge Softness",
-        description=("Soft edge width. 0 = hard edge, 1 = fades from the centre, "
-                     "above 1 the light also blooms beyond its outline"),
-        default=0.1, min=0.0, max=4.0, soft_max=2.0, update=_tex_changed)
+        description=("Soft edge width. 0 = hard edge, 1 = fades all the way from the centre, "
+                     "above 1 the light blooms far beyond its outline (up to 10)"),
+        default=0.1, min=0.0, max=10.0, soft_max=5.0, update=_tex_changed)
     roundness: FloatProperty(
         name="Roundness",
-        description="Rectangle corners: 0 = square, 1 = ellipse, above 1 sides curve inwards",
-        default=0.05, min=0.0, max=2.0, update=_tex_changed)
+        description=("Rectangle corners: 0 = square, 0.5 = rounded corners, 1 = ellipse, "
+                     "2 = curved-in sides, 3 = four-pointed star"),
+        default=0.05, min=0.0, max=3.0, update=_tex_changed)
     ring_inner: FloatProperty(
         name="Ring Inner Size", default=0.7, min=0.0, max=0.98,
         subtype='FACTOR', update=_tex_changed)
     falloff: FloatProperty(
         name="Center Falloff",
-        description=("Brightness from the centre to the edge. Positive = hot spot "
-                     "(above 1 it gets tighter), negative = brighter edges"),
-        default=0.0, min=-1.0, max=8.0, soft_max=4.0, update=_tex_changed)
+        description=("Brightness change from the centre to the edge, in stops. "
+                     "+3 = edge 3 stops (8x) darker (hot spot), -3 = centre 3 stops darker "
+                     "(bright rim)"),
+        default=0.0, min=-12.0, max=20.0, soft_min=-6.0, soft_max=10.0, update=_tex_changed)
 
     # Gradient ---------------------------------------------------------------
     gradient_type: EnumProperty(

@@ -175,13 +175,7 @@ class ShapeData:
 
     def edge_extent(self):
         """How far (in normalised units) the soft edge reaches outwards (bloom)."""
-        return 1.0 + max(0.0, self.softness - 1.0) * 0.5
-
-    def rect_exponent(self):
-        r = max(0.0, min(2.0, self.roundness))
-        if r <= 1.0:
-            return 2.0 + (1.0 - r) * 38.0
-        return 2.0 - (r - 1.0) * 1.5
+        return 1.0 + max(0.0, self.softness - 1.0) * BLOOM_PER_UNIT
 
     def is_plain(self):
         """True if the light looks exactly like a hard-edged native light."""
@@ -190,16 +184,36 @@ class ShapeData:
                 and (self.shape != 'RECT' or self.roundness <= 1e-4))
 
 
+# Edge softness above 1 grows the light outwards by this much per unit.
+BLOOM_PER_UNIT = 0.75
+# Soft edges and centre falloff are shaped in photographic stops, so they stay
+# visible on bright lights (a linear fade is mostly clipped to white on screen).
+SOFT_STOPS = 7.0
+
 OCT_ANGLES = [k * math.pi / 4.0 + math.pi / 8.0 for k in range(8)]
 OCT_NORM = 1.0 / math.cos(math.pi / 8.0)
 
 
-def shape_distance(shape, nx, ny, exponent):
-    """Normalised distance: 1.0 on the shape outline."""
+def shape_distance(shape, nx, ny, roundness=0.0):
+    """Normalised distance: 0 in the centre, 1.0 on the shape outline.
+
+    Rectangles use ``roundness`` as a corner radius: 0 = square,
+    0.5 = half rounded corners, 1 = ellipse (evenly in between). Above 1 the
+    sides curve inwards (superellipse) up to a four-pointed star at 3.
+    """
     if shape == 'RECT':
         ax = np.minimum(np.abs(nx), 8.0)
         ay = np.minimum(np.abs(ny), 8.0)
-        return (ax ** exponent + ay ** exponent) ** (1.0 / exponent)
+        r = max(0.0, min(3.0, roundness))
+        if r <= 1.0:
+            c = r
+            qx = ax - (1.0 - c)
+            qy = ay - (1.0 - c)
+            outside = np.sqrt(np.maximum(qx, 0.0) ** 2 + np.maximum(qy, 0.0) ** 2)
+            inside = np.minimum(np.maximum(qx, qy), 0.0)
+            return 1.0 + outside + inside - c
+        e = 2.0 / (1.0 + (r - 1.0) * 1.5)
+        return (ax ** e + ay ** e) ** (1.0 / e)
     if shape == 'OCTAGON':
         d = None
         for a in OCT_ANGLES:
@@ -207,6 +221,27 @@ def shape_distance(shape, nx, ny, exponent):
             d = t if d is None else np.maximum(d, t)
         return d * OCT_NORM
     return np.sqrt(nx * nx + ny * ny)
+
+
+def stops_curve(f, stops=SOFT_STOPS):
+    """Map a 0..1 fade to 0..1 evenly in stops (exposure), not linearly."""
+    return (np.exp2(stops * f) - 1.0) / (2.0 ** stops - 1.0)
+
+
+def falloff_profile(falloff, nx, ny, shape='ELLIPSE', roundness=1.0):
+    """Centre falloff in stops: +f = edge f stops darker, -f = centre f stops darker.
+
+    The radial profile is normalised to the shape's farthest point, so the
+    corners of a rectangle keep fading instead of flattening out.
+    """
+    reach2 = 1.0
+    if shape == 'RECT' and roundness < 1.0:
+        c = max(0.0, roundness)
+        reach2 = 2.0 * ((1.0 - c) + c / math.sqrt(2.0)) ** 2
+    rr2 = np.clip((nx * nx + ny * ny) / reach2, 0.0, 1.0)
+    if falloff > 0.0:
+        return np.exp2(-falloff * rr2)
+    return np.exp2(falloff * (1.0 - rr2))
 
 
 def _smooth(edge0, edge1, x):
@@ -264,29 +299,29 @@ def gradient_t(kind, angle, offset, scale, mid, interp, nx, ny):
 
 def shape_rgba(s, nx, ny):
     """RGB emission multiplier for light-local coordinates (1.0 = outline)."""
-    r = shape_distance(s.shape, nx, ny, s.rect_exponent())
+    r = shape_distance(s.shape, nx, ny, s.roundness)
     soft = max(s.softness, 1e-3)
     outer = s.edge_extent()
     inner_edge = 1.0 - min(soft, 1.0)
-    mask = _smooth(outer, inner_edge, r)
+    fade = _smooth(outer, inner_edge, r)
     if s.shape == 'RECT':
         # Very soft rectangles fade per axis like a real softbox (no "X").
         w = min(max((soft - 0.5) / 0.5, 0.0), 1.0) * (1.0 - min(s.roundness, 1.0))
         if w > 0.0:
             axis = _smooth(outer, inner_edge, np.abs(nx)) * _smooth(outer, inner_edge, np.abs(ny))
-            mask = mask * (1.0 - w) + axis * w
+            fade = fade * (1.0 - w) + axis * w
     if s.shape == 'RING':
         inner = max(0.0, min(0.98, s.ring_inner))
         rs = min(soft, 1.0)
-        mask = mask * _smooth(inner - rs * 0.5, inner + rs * 0.5, r)
+        fade = fade * _smooth(inner - rs * 0.5, inner + rs * 0.5, r)
+    if s.softness > 1e-3:
+        # Even in stops: the soft edge is visible however bright the light is.
+        mask = stops_curve(fade, SOFT_STOPS * min(1.0, 0.3 + s.softness * 3.0))
+    else:
+        mask = fade
 
-    f = s.falloff
-    if f != 0.0:
-        rr2 = np.clip(nx * nx + ny * ny, 0.0, 1.0)
-        if f <= 1.0:
-            mask = mask * (1.0 - f * rr2)
-        else:
-            mask = mask * (1.0 - rr2) ** f
+    if s.falloff != 0.0:
+        mask = mask * falloff_profile(s.falloff, nx, ny, s.shape, s.roundness)
 
     rgb = np.repeat(mask[..., None], 3, axis=-1)
     if s.grad_type != 'NONE':

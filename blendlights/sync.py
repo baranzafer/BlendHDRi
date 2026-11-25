@@ -349,6 +349,8 @@ def update_texture(obj, force=False):
         _tex_keys.pop(obj.name, None)
         return
     res = int(ls.texture_res)
+    # Very soft lights bloom far outside their outline: keep the outline sharp.
+    res = min(2048, int(res * max(1.0, _e / 1.5)) // 8 * 8)
     node, img = texture_image(obj, res)
     if img is None:
         return

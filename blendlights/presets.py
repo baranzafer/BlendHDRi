@@ -10,25 +10,25 @@ D = math.radians
 LIGHT_PRESETS = {
     'SOFTBOX_LARGE': ("Large Softbox", "Big rectangular softbox", 'MESH_PLANE', dict(
         light_type='AREA', shape='RECT', width=D(45), height=D(32), softness=0.12,
-        roundness=0.05, falloff=0.15, intensity=10.0)),
+        roundness=0.05, falloff=1.0, intensity=10.0)),
     'SOFTBOX_SQUARE': ("Square Softbox", "Medium square softbox", 'MESH_PLANE', dict(
         light_type='AREA', shape='RECT', width=D(28), height=D(28), softness=0.1,
-        roundness=0.05, falloff=0.2, intensity=14.0)),
+        roundness=0.05, falloff=1.2, intensity=14.0)),
     'SOFTBOX_SMALL': ("Small Softbox", "Small, crisp softbox", 'MESH_PLANE', dict(
         light_type='AREA', shape='RECT', width=D(14), height=D(10), softness=0.06,
-        roundness=0.05, falloff=0.1, intensity=40.0)),
+        roundness=0.05, falloff=0.8, intensity=40.0)),
     'STRIP': ("Strip Softbox", "Tall narrow strip light", 'IPO_LINEAR', dict(
         light_type='AREA', shape='RECT', width=D(9), height=D(70), softness=0.12,
-        roundness=0.1, falloff=0.05, intensity=20.0)),
+        roundness=0.1, falloff=0.4, intensity=20.0)),
     'STRIP_WIDE': ("Horizontal Strip", "Wide horizontal strip", 'IPO_LINEAR', dict(
         light_type='AREA', shape='RECT', width=D(90), height=D(8), softness=0.12,
-        roundness=0.1, falloff=0.05, intensity=16.0)),
+        roundness=0.1, falloff=0.4, intensity=16.0)),
     'OCTABOX': ("Octabox", "Large eight-sided octabox", 'SEQ_CHROMA_SCOPE', dict(
         light_type='AREA', shape='OCTAGON', width=D(45), height=D(45), softness=0.08,
-        falloff=0.35, intensity=10.0)),
+        falloff=1.8, intensity=10.0)),
     'ROUND': ("Round Softbox", "Round softbox", 'MESH_CIRCLE', dict(
         light_type='AREA', shape='ELLIPSE', width=D(26), height=D(26), softness=0.1,
-        falloff=0.3, intensity=16.0)),
+        falloff=1.5, intensity=16.0)),
     'BEAUTY_DISH': ("Beauty Dish", "Round light, bright rim and darker centre", 'MESH_CIRCLE', dict(
         light_type='AREA', shape='ELLIPSE', width=D(30), height=D(30), softness=0.12,
         gradient_type='RADIAL', gradient_offset=0.2, gradient_scale=0.8,
@@ -38,7 +38,7 @@ LIGHT_PRESETS = {
         ring_inner=0.72, intensity=16.0)),
     'PANEL': ("Overhead Panel", "Huge diffuse panel", 'MESH_GRID', dict(
         light_type='AREA', shape='RECT', width=D(110), height=D(70), softness=0.25,
-        roundness=0.02, falloff=0.1, intensity=3.0)),
+        roundness=0.02, falloff=0.8, intensity=3.0)),
     'WINDOW': ("Window", "Window light with a soft vertical gradient", 'MOD_LATTICE', dict(
         light_type='AREA', shape='RECT', width=D(35), height=D(50), softness=0.08,
         roundness=0.0, gradient_type='LINEAR', gradient_angle=D(90),
@@ -53,7 +53,7 @@ LIGHT_PRESETS = {
         intensity=0.8, spread=D(180))),
     'GRID_SOFTBOX': ("Softbox + Grid", "Softbox with a honeycomb grid (narrow spread)", 'MESH_GRID', dict(
         light_type='AREA', shape='RECT', width=D(30), height=D(30), softness=0.1,
-        roundness=0.05, falloff=0.2, intensity=20.0, spread=D(40))),
+        roundness=0.05, falloff=1.2, intensity=20.0, spread=D(40))),
     'SPOT_HARD': ("Hard Spot", "Crisp fresnel spot", 'LIGHT_SPOT', dict(
         light_type='SPOT', shape='ELLIPSE', width=D(30), height=D(30), softness=0.15,
         source_size=D(1.0), intensity=4.0)),

@@ -166,9 +166,19 @@ Center Falloff, gradyan ve görüntü dokusu gibi HDRI Studio'daki ayarlar gerç
   - **Intensity**: Area ışıklarda yüzey parlaklığı (HDRI ışığıyla aynı anlam,
     mesafeden bağımsız). Spot / Point / Sun'da pivottaki aydınlatma (güneş
     gücü birimi). Watt değeri mesafe ve boyuttan otomatik hesaplanır.
-  - **Shape**: Rectangle, Round, Octabox, Ring. Roundness 0 kare → 1 elips →
-    2 içe kıvrık (baklava / yıldız). Edge Softness 1'in üstünde çerçevenin
-    dışına taşar (bloom).
+  - **Shape**: Rectangle, Round, Octabox, Ring.
+  - **Edge Softness 0–10**: 1'e kadar kenar merkeze doğru yumuşar, 1'in
+    üstünde ışık çerçevesinin çok dışına taşar (bloom). Geçiş *stop* (pozlama)
+    cinsinden eşit dağıtılır; parlak ışıklarda da yumuşaklık beyaza patlamaz.
+  - **Roundness 0–3**: köşe yarıçapı gibi doğrusal çalışır — 0 kare, 0.5
+    yuvarlak köşe, 1 elips, 2 içe kıvrık kenarlar, 3 dört köşeli yıldız.
+  - **Center Falloff −12…+20 stop**: +3 kenarı 3 stop (8 kat) karartır
+    (sıcak nokta), −3 merkezi karartır (parlak kenar).
+
+  ![shape controls](docs/blendlights_shape_controls.png)
+
+  *Üst sıra Softness 0 / 0.3 / 1 / 3, orta sıra Roundness 0 / 0.5 / 1 / 2.5,
+  alt sıra Falloff 0 / +2 / +5 / −3 (Intensity 10, AgX).*
 - **Işık dokusu (Cycles)**: şekil, yumuşaklık, merkez düşüşü, gradyan ve
   isteğe bağlı görüntü (softbox fotoğrafı, pencere…) küçük bir float dokuya
   rasterize edilir ve ışığın node ağacına (Texture Coordinate ▸ UV ▸ Image ▸
