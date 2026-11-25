@@ -14,7 +14,7 @@
 bl_info = {
     "name": "HDRLS Shot Manager",
     "author": "BlendHDRi",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "Properties > World > HDRLS Shots  |  3D View > N panel > HDRLS",
     "description": "Separate HDR Light Studio lighting for each shot / frame, saved in the .blend",
@@ -24,15 +24,18 @@ bl_info = {
 import os
 import re
 import shutil
+import sys
 import time
 import uuid
 from xml.sax.saxutils import escape as _xml_escape
+from xml.sax.saxutils import unescape as _xml_unescape
 
 import bpy
 from bpy.app.handlers import persistent
 from bpy.props import (
     BoolProperty,
     CollectionProperty,
+    EnumProperty,
     FloatProperty,
     IntProperty,
     PointerProperty,
@@ -218,9 +221,27 @@ def hdrls_call(name):
         return False
 
 
+def _conn():
+    """The connection's Connection module (it puts its folder on sys.path)."""
+    mod = sys.modules.get("Connection")
+    if mod is not None and hasattr(mod, "loadHDRLSProjectData"):
+        return mod
+    return None
+
+
+def _cfg():
+    mod = sys.modules.get("config")
+    if mod is not None and hasattr(mod, "bHDRLSInitialised"):
+        return mod
+    return None
+
+
 def hdrls_running():
-    """Best guess whether a live HDR Light Studio session is connected:
-    the connection's Stop operator is only available while it runs."""
+    """Whether a live HDR Light Studio session is connected."""
+    cfg = _cfg()
+    if cfg is not None:
+        return bool(cfg.bHDRLSInitialised) and not getattr(cfg, "bExiting", False)
+    # Fallback: the connection's Stop operator is only available while it runs.
     op = _hdrls_op("stop_hdrls")
     if op is None:
         return False
@@ -229,6 +250,116 @@ def hdrls_running():
             return bool(op.poll())
     except Exception:
         return False
+
+
+def hdrls_loading():
+    cfg = _cfg()
+    return bool(cfg is not None and getattr(cfg, "bLoadingProject", False))
+
+
+def hot_load_available():
+    conn = _conn()
+    return conn is not None and hasattr(conn, "saveProjectData")
+
+
+def hdrls_pull():
+    """Copy the live project from HDR Light Studio into
+    scene["HDRLS Project Data"] (Connection.saveProjectData -> SaveProject)."""
+    conn = _conn()
+    if conn is not None and hasattr(conn, "saveProjectData") and hdrls_running():
+        try:
+            conn.saveProjectData()
+            return True
+        except Exception as exc:
+            print("HDRLS Shots: saveProjectData failed:", exc)
+            return False
+    return sync_from_hdrls()
+
+
+def hdrls_push():
+    """Load scene["HDRLS Project Data"] into the running HDR Light Studio
+    without restarting it (Connection.loadHDRLSProjectData -> LoadProject),
+    the same call the Start button makes."""
+    conn = _conn()
+    if conn is None:
+        return False
+    try:
+        if hasattr(conn, "setLoadingProject"):
+            conn.setLoadingProject()
+        ok = conn.loadHDRLSProjectData()
+    except Exception as exc:
+        print("HDRLS Shots: loadHDRLSProjectData failed:", exc)
+        ok = False
+    if not ok and hasattr(conn, "setLoadingProjectComplete"):
+        conn.setLoadingProjectComplete()
+    return bool(ok)
+
+
+def _wait_loading(timeout=15.0):
+    """Generator: wait while HDR Light Studio is still loading a project."""
+    t0 = time.monotonic()
+    while hdrls_loading() and time.monotonic() - t0 < timeout:
+        yield 0.1
+
+
+# --------------------------------------------------------------------------
+# Light Looks inside the project XML
+# --------------------------------------------------------------------------
+
+_LOOKS_RE = re.compile(r"<LightingLooks>(.*?)</LightingLooks>", re.S)
+_LOOK_RE = re.compile(r"<Look>(.*?)</Look>", re.S)
+_CURRENT_RE = re.compile(r"(<LightingLooks>\s*<current>)\s*(-?\d+)\s*(</current>)", re.S)
+
+
+def parse_looks(xml):
+    """[(id, name), ...] and the id of the active Look."""
+    looks = []
+    current = None
+    m = _LOOKS_RE.search(xml or "")
+    if not m:
+        return looks, current
+    block = m.group(1)
+    c = re.search(r"<current>\s*(-?\d+)\s*</current>", block)
+    if c:
+        current = int(c.group(1))
+    for lm in _LOOK_RE.finditer(block):
+        body = lm.group(1)
+        name = re.search(r"<name>(.*?)</name>", body, re.S)
+        lid = re.search(r"<id>\s*(-?\d+)\s*</id>", body)
+        if lid:
+            looks.append((int(lid.group(1)), _xml_unescape(name.group(1)) if name else ""))
+    return looks, current
+
+
+def set_current_look(xml, look_id):
+    if not _CURRENT_RE.search(xml):
+        return xml
+    return _CURRENT_RE.sub(lambda m: m.group(1) + str(look_id) + m.group(3), xml, count=1)
+
+
+def refresh_look_list(st, xml):
+    looks, current = parse_looks(xml)
+    st.looks.clear()
+    for lid, name in looks:
+        item = st.looks.add()
+        item.name = name
+        item.look_id = lid
+    return looks, current
+
+
+def resolve_look(st, shot, xml):
+    """The Look id of a shot: by id, or by name if the id is gone."""
+    looks, _current = parse_looks(xml)
+    for lid, name in looks:
+        if lid == shot.look_id and shot.look_id >= 0:
+            if name and name != shot.look_name:
+                shot.look_name = name  # renamed in HDR Light Studio
+            return lid
+    for lid, name in looks:
+        if shot.look_name and name == shot.look_name:
+            shot.look_id = lid
+            return lid
+    return None
 
 
 def _hdrls_save_handlers():
@@ -287,40 +418,67 @@ def capture_preview(scene, shot):
     return True
 
 
+def _uses_looks(st):
+    return st.mode == "LOOKS"
+
+
 def store_live(scene, sync=True):
-    """Save the lighting currently loaded in HDR Light Studio into the shot
-    that owns it."""
+    """Remember the lighting that is live in HDR Light Studio.
+
+    Light Looks mode: the Looks live inside the one project, so only the
+    project in the scene is refreshed.  Project mode: the project is copied
+    into the shot that owns it."""
     st = _settings(scene)
     shot = find_shot(st, st.current_uid)
-    if shot is None:
-        return None
     if sync and st.sync_before_store:
-        sync_from_hdrls()
+        hdrls_pull()
     data = scene.get(PROJECT_KEY)
     if isinstance(data, str) and data:
-        shot.data = data
-    capture_preview(scene, shot)
+        if _uses_looks(st):
+            refresh_look_list(st, data)
+        elif shot is not None:
+            shot.data = data
+    if shot is not None:
+        capture_preview(scene, shot)
     return shot
 
 
+def _patch_render_path(st, shot, data):
+    if not (data and st.set_render_path):
+        return data
+    out = _output_dir(st)
+    if not out:
+        return data
+    path = os.path.join(out, _safe_name(shot) + _export_ext(data))
+    if not shot.image_path:
+        shot.image_path = bpy.path.relpath(path) if bpy.data.filepath else path
+    return patch_export_path(data, path)
+
+
 def load_shot(scene, shot):
-    """Put the shot's project into scene["HDRLS Project Data"] and mark it
-    as the live one."""
+    """Put the shot's lighting into scene["HDRLS Project Data"] and mark it
+    as the live one.  Returns False when its Look cannot be found."""
     st = _settings(scene)
-    data = shot.data or scene.get(PROJECT_KEY, "")
-    if not isinstance(data, str):
-        data = ""
-    if data and st.set_render_path:
-        out = _output_dir(st)
-        if out:
-            path = os.path.join(out, _safe_name(shot) + _export_ext(data))
-            data = patch_export_path(data, path)
-            if not shot.image_path:
-                shot.image_path = bpy.path.relpath(path) if bpy.data.filepath else path
+    if _uses_looks(st):
+        data = scene.get(PROJECT_KEY, "")
+        if not isinstance(data, str) or not data:
+            return False
+        lid = resolve_look(st, shot, data)
+        if lid is None:
+            _set_status("Look '%s' not found" % shot.look_name)
+            return False
+        data = set_current_look(data, lid)
+    else:
+        data = shot.data or scene.get(PROJECT_KEY, "")
+        if not isinstance(data, str):
+            data = ""
+    data = _patch_render_path(st, shot, data)
     if data:
-        shot.data = data
+        if not _uses_looks(st):
+            shot.data = data
         scene[PROJECT_KEY] = data
     st.current_uid = shot.uid
+    return True
 
 
 def _switch_job(scene_name, uid):
@@ -332,10 +490,15 @@ def _switch_job(scene_name, uid):
     target = find_shot(st, uid)
     if target is None or uid == st.current_uid:
         return
-    restart = st.restart_live and hdrls_running()
+    live = hdrls_running()
+    hot = live and st.switch_method == "HOT" and hot_load_available()
+    restart = live and not hot and st.restart_live
     _set_status("Switching to %s..." % target.name)
 
-    store_live(scene, sync=restart)
+    if live:
+        yield from _wait_loading()
+    store_live(scene, sync=live)
+
     if restart:
         hdrls_call("stop_hdrls")
         yield st.restart_wait
@@ -346,14 +509,21 @@ def _switch_job(scene_name, uid):
         target = find_shot(st, uid)
         if target is None:
             return
-        # Stopping may have written the latest project once more.
-        old = find_shot(st, st.current_uid)
+        # Stopping writes the latest project once more.
         data = scene.get(PROJECT_KEY)
-        if old is not None and isinstance(data, str) and data:
+        old = find_shot(st, st.current_uid)
+        if isinstance(data, str) and data and old is not None and not _uses_looks(st):
             old.data = data
 
-    load_shot(scene, target)
-    if restart:
+    if not load_shot(scene, target):
+        if restart:
+            hdrls_call("launch_hdrls")
+        return
+    if hot:
+        if not hdrls_push():
+            _set_status("Live load failed - see the system console")
+            return
+    elif restart:
         hdrls_call("launch_hdrls")
     _set_status("")
     update_render_world(scene)
@@ -479,9 +649,32 @@ def _on_shot_frame(self, context):
         request_check(context.scene)
 
 
+def _on_look_name(self, context):
+    scene = context.scene
+    if scene is None:
+        return
+    st = _settings(scene)
+    for item in st.looks:
+        if item.name == self.look_name:
+            self.look_id = item.look_id
+            break
+    if self.uid == st.current_uid and _uses_looks(st):
+        st.current_uid = ""  # force the Look to be loaded again
+        request_check(scene, 0.0)
+
+
+class HDRLSLook(bpy.types.PropertyGroup):
+    name: StringProperty(name="Look")
+    look_id: IntProperty(default=-1)
+
+
 class HDRLSShot(bpy.types.PropertyGroup):
     name: StringProperty(name="Name", default="Shot")
     uid: StringProperty(options={"HIDDEN"})
+    look_name: StringProperty(
+        name="Light Look", update=_on_look_name,
+        description="HDR Light Studio Light Look shown for this shot")
+    look_id: IntProperty(default=-1, options={"HIDDEN"})
     frame: IntProperty(
         name="Start Frame",
         description="The shot lasts from this frame until the next shot starts",
@@ -505,17 +698,43 @@ def _on_auto_switch(self, context):
         request_check(context.scene)
 
 
+def _on_mode(self, context):
+    if context.scene is not None:
+        data = context.scene.get(PROJECT_KEY)
+        if isinstance(data, str):
+            refresh_look_list(self, data)
+
+
 class HDRLSShotSettings(bpy.types.PropertyGroup):
     shots: CollectionProperty(type=HDRLSShot)
+    looks: CollectionProperty(type=HDRLSLook)
     active_index: IntProperty(default=0)
     current_uid: StringProperty(options={"HIDDEN"})
+    mode: EnumProperty(
+        name="Shot Lighting",
+        items=(
+            ("LOOKS", "Light Looks",
+             "One HDR Light Studio project; every shot shows one of its Light Looks"),
+            ("PROJECTS", "Separate Projects",
+             "Every shot keeps its own copy of the whole HDR Light Studio project"),
+        ),
+        default="LOOKS", update=_on_mode)
+    switch_method: EnumProperty(
+        name="Switch Method",
+        items=(
+            ("HOT", "Live Load",
+             "Load the lighting into the running HDR Light Studio (fast, no restart)"),
+            ("RESTART", "Restart",
+             "Stop and start HDR Light Studio (slow, use if Live Load misbehaves)"),
+        ),
+        default="HOT")
     auto_switch: BoolProperty(
         name="Auto Switch on Frame Change", default=True, update=_on_auto_switch,
         description="Load the shot's lighting into HDR Light Studio when the "
                     "current frame moves into another shot")
     restart_live: BoolProperty(
-        name="Restart Live Session", default=True,
-        description="Stop and start HDR Light Studio so it loads the new shot. "
+        name="Update Live Session", default=True,
+        description="Send the new shot to the running HDR Light Studio. "
                     "When off only the data stored in the .blend is swapped")
     sync_before_store: BoolProperty(
         name="Sync Before Storing", default=True,
@@ -543,8 +762,9 @@ class HDRLSShotSettings(bpy.types.PropertyGroup):
 class HDRLSSHOTS_OT_add(bpy.types.Operator):
     bl_idname = "hdrls_shots.add"
     bl_label = "Add Shot"
-    bl_description = ("Create a shot starting at the current frame with a copy "
-                      "of the lighting that is live in HDR Light Studio now")
+    bl_description = ("Create a shot starting at the current frame. Light Looks: it "
+                      "uses the Look that is active in HDR Light Studio now. "
+                      "Separate Projects: it starts with a copy of the live lighting")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -554,14 +774,12 @@ class HDRLSSHOTS_OT_add(bpy.types.Operator):
         if any(s.frame == frame for s in st.shots):
             self.report({"WARNING"}, "A shot already starts on frame %d" % frame)
             return {"CANCELLED"}
-        if _state["job"] is not None:
+        if _state["job"] is not None or hdrls_loading():
             self.report({"WARNING"}, "A shot switch is still running")
             return {"CANCELLED"}
         _state["pending"] = None
 
         store_live(scene)
-        if st.sync_before_store and not st.shots:
-            sync_from_hdrls()
         data = scene.get(PROJECT_KEY, "")
         if not isinstance(data, str) or not data:
             self.report({"WARNING"},
@@ -569,16 +787,79 @@ class HDRLSSHOTS_OT_add(bpy.types.Operator):
                         "Start HDR Light Studio once, then add the shot")
             return {"CANCELLED"}
 
+        look = None
+        if _uses_looks(st):
+            looks, current = refresh_look_list(st, data)
+            look = next(((i, n) for i, n in looks if i == current), None)
+            if look is None:
+                self.report({"WARNING"}, "No active Light Look found in the HDR Light Studio project")
+                return {"CANCELLED"}
+
         shot = st.shots.add()
         shot.uid = uuid.uuid4().hex[:12]
-        shot.name = "F%03d" % frame
         shot["frame"] = frame
-        shot.data = data
+        if look is not None:
+            shot["look_id"] = look[0]
+            shot["look_name"] = look[1]
+            shot.name = look[1] or "F%03d" % frame
+        else:
+            shot.name = "F%03d" % frame
+            shot.data = data
         st.active_index = len(st.shots) - 1
-        # HDR Light Studio already shows this lighting: no restart needed.
+        # HDR Light Studio already shows this lighting: nothing to load.
         load_shot(scene, shot)
         capture_preview(scene, shot)
         update_render_world(scene)
+        return {"FINISHED"}
+
+
+class HDRLSSHOTS_OT_use_active_look(bpy.types.Operator):
+    bl_idname = "hdrls_shots.use_active_look"
+    bl_label = "Use Active Look"
+    bl_description = "Bind the selected shot to the Light Look that is active in HDR Light Studio now"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        st = _settings(context.scene)
+        return _uses_looks(st) and 0 <= st.active_index < len(st.shots)
+
+    def execute(self, context):
+        scene = context.scene
+        st = _settings(scene)
+        if hdrls_running():
+            hdrls_pull()
+        data = scene.get(PROJECT_KEY, "")
+        looks, current = refresh_look_list(st, data if isinstance(data, str) else "")
+        look = next(((i, n) for i, n in looks if i == current), None)
+        if look is None:
+            self.report({"WARNING"}, "No active Light Look found")
+            return {"CANCELLED"}
+        shot = st.shots[st.active_index]
+        shot["look_id"] = look[0]
+        shot["look_name"] = look[1]
+        # The Look is already live in HDR Light Studio.
+        if shot_for_frame(st, scene.frame_current) == shot:
+            st.current_uid = shot.uid
+        elif shot.uid == st.current_uid:
+            st.current_uid = ""
+            request_check(scene, 0.0)
+        self.report({"INFO"}, "%s uses Look '%s'" % (shot.name, look[1]))
+        return {"FINISHED"}
+
+
+class HDRLSSHOTS_OT_refresh_looks(bpy.types.Operator):
+    bl_idname = "hdrls_shots.refresh_looks"
+    bl_label = "Refresh Looks"
+    bl_description = "Read the list of Light Looks from HDR Light Studio"
+
+    def execute(self, context):
+        scene = context.scene
+        if hdrls_running():
+            hdrls_pull()
+        data = scene.get(PROJECT_KEY, "")
+        looks, _cur = refresh_look_list(_settings(scene), data if isinstance(data, str) else "")
+        self.report({"INFO"}, "%d Light Looks" % len(looks))
         return {"FINISHED"}
 
 
@@ -610,8 +891,9 @@ class HDRLSSHOTS_OT_remove(bpy.types.Operator):
 
 class HDRLSSHOTS_OT_store(bpy.types.Operator):
     bl_idname = "hdrls_shots.store"
-    bl_label = "Save Lighting to Shot"
-    bl_description = "Store the lighting that is live in HDR Light Studio into the current shot now"
+    bl_label = "Save Lighting"
+    bl_description = ("Fetch the live lighting from HDR Light Studio now and keep it "
+                      "in the .blend (it is also done on every switch and save)")
 
     @classmethod
     def poll(cls, context):
@@ -620,7 +902,7 @@ class HDRLSSHOTS_OT_store(bpy.types.Operator):
 
     def execute(self, context):
         shot = store_live(context.scene)
-        self.report({"INFO"}, "Lighting saved to %s" % shot.name)
+        self.report({"INFO"}, "Lighting saved (%s)" % (shot.name if shot else "project"))
         return {"FINISHED"}
 
 
@@ -666,8 +948,8 @@ class HDRLSSHOTS_OT_sync_frame(bpy.types.Operator):
 class HDRLSSHOTS_OT_reload_live(bpy.types.Operator):
     bl_idname = "hdrls_shots.reload_live"
     bl_label = "Reload into HDR Light Studio"
-    bl_description = ("Stop HDR Light Studio and start it again with the "
-                      "current shot's stored lighting (if it got out of sync)")
+    bl_description = ("Send the current shot's stored lighting (or its Light Look) "
+                      "to HDR Light Studio again, if it got out of sync")
 
     @classmethod
     def poll(cls, context):
@@ -675,27 +957,33 @@ class HDRLSSHOTS_OT_reload_live(bpy.types.Operator):
         return hdrls_installed() and find_shot(st, st.current_uid) is not None
 
     def execute(self, context):
+        if _state["job"] is not None:
+            return {"CANCELLED"}
         scene = context.scene
         st = _settings(scene)
-        shot = find_shot(st, st.current_uid)
         scene_name = scene.name
-        uid = shot.uid
+        uid = st.current_uid
+        hot = st.switch_method == "HOT" and hot_load_available() and hdrls_running()
+        wait = st.restart_wait
 
         def job():
-            _set_status("Reloading %s..." % shot.name)
-            hdrls_call("stop_hdrls")
-            yield st.restart_wait
+            _set_status("Reloading...")
+            yield from _wait_loading()
+            if not hot:
+                hdrls_call("stop_hdrls")
+                yield wait
             sc = bpy.data.scenes.get(scene_name)
             if sc is None:
                 return
-            s = find_shot(_settings(sc), uid)
-            if s is not None and s.data:
-                sc[PROJECT_KEY] = s.data
-            hdrls_call("launch_hdrls")
+            shot = find_shot(_settings(sc), uid)
+            if shot is not None:
+                load_shot(sc, shot)
+            if hot:
+                hdrls_push()
+            else:
+                hdrls_call("launch_hdrls")
             _set_status("")
 
-        if _state["job"] is not None:
-            return {"CANCELLED"}
         _state["job"] = job()
         if not bpy.app.timers.is_registered(_tick):
             bpy.app.timers.register(_tick, first_interval=0.01)
@@ -785,6 +1073,8 @@ class HDRLSSHOTS_UL_shots(bpy.types.UIList):
         row.prop(item, "name", text="", emboss=False)
         sub = row.row(align=True)
         sub.alignment = "RIGHT"
+        if data.mode == "LOOKS" and item.look_name and item.look_name != item.name:
+            sub.label(text=item.look_name, icon="LIGHT_SUN")
         sub.label(text="F %d" % item.frame)
         has_final = bool(item.image_path) and os.path.isfile(_abs(item.image_path))
         has_prev = bool(item.preview_path) and os.path.isfile(_abs(item.preview_path))
@@ -812,6 +1102,8 @@ def draw_shots(layout, context):
     if world is not None and world.get(RENDER_TAG):
         row.label(text="Shots World", icon="WORLD")
 
+    layout.row().prop(st, "mode", expand=True)
+
     row = layout.row()
     row.template_list("HDRLSSHOTS_UL_shots", "", st, "shots", st, "active_index", rows=4)
     col = row.column(align=True)
@@ -826,6 +1118,13 @@ def draw_shots(layout, context):
         box = layout.box()
         box.prop(shot, "name")
         box.prop(shot, "frame")
+        if _uses_looks(st):
+            r = box.row(align=True)
+            r.prop_search(shot, "look_name", st, "looks", icon="LIGHT_SUN")
+            r.operator("hdrls_shots.use_active_look", text="", icon="EYEDROPPER")
+            r.operator("hdrls_shots.refresh_looks", text="", icon="FILE_REFRESH")
+            if shot.look_name and not any(l.name == shot.look_name for l in st.looks):
+                box.label(text="Look not in the project (refresh?)", icon="ERROR")
         box.prop(shot, "image_path")
         r = box.row()
         r.enabled = False
@@ -848,6 +1147,7 @@ def draw_settings(layout, context):
     layout.use_property_decorate = False
     col = layout.column()
     col.prop(st, "auto_switch")
+    col.prop(st, "switch_method")
     col.prop(st, "restart_live")
     col.prop(st, "sync_before_store")
     col.prop(st, "switch_delay")
@@ -942,9 +1242,14 @@ def _on_save_pre(*_args):
         return
     for scene in bpy.data.scenes:
         st = _settings(scene)
-        shot = find_shot(st, st.current_uid)
         data = scene.get(PROJECT_KEY)
-        if shot is not None and isinstance(data, str) and data:
+        if not isinstance(data, str) or not data:
+            continue
+        if _uses_looks(st):
+            refresh_look_list(st, data)
+            continue
+        shot = find_shot(st, st.current_uid)
+        if shot is not None:
             shot.data = data
 
 
@@ -982,9 +1287,12 @@ _HANDLERS = (
 # --------------------------------------------------------------------------
 
 _CLASSES = (
+    HDRLSLook,
     HDRLSShot,
     HDRLSShotSettings,
     HDRLSSHOTS_OT_add,
+    HDRLSSHOTS_OT_use_active_look,
+    HDRLSSHOTS_OT_refresh_looks,
     HDRLSSHOTS_OT_remove,
     HDRLSSHOTS_OT_store,
     HDRLSSHOTS_OT_goto,
