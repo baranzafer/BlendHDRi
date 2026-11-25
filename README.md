@@ -108,6 +108,13 @@ Blender **4.2 veya üstü** (5.x ile test edildi).
 > ayarlarından otomatik olarak yeniden üretilir. Kalıcı bir dosya için Export
 > kullanın.
 
+## Ek: HDRLS Shot Manager
+
+HDR Light Studio (Lightmap) kullanıyorsanız [`hdrls_shots/`](hdrls_shots/README.md)
+klasöründeki ayrı eklenti, her shot / frame aralığı için ayrı bir HDR Light Studio
+ışık kurulumu tutar, `.blend` dosyasına kaydeder ve frame değişince canlı oturumu
+o shot'un ışığıyla yeniden açar.
+
 ## Teknik notlar
 
 - HDRI, numpy ile prosedürel olarak rasterize edilir (gnomonik projeksiyon ile
