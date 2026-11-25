@@ -1,0 +1,17 @@
+schema_version = "1.0.0"
+
+id = "blendlights"
+version = "0.1.0"
+name = "BlendLights - Physical Light Studio"
+tagline = "Studio control of real lights: LightPaint, soft edges, gradients, textures"
+maintainer = "BlendHDRi contributors"
+type = "add-on"
+
+tags = ["Lighting", "Render"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Read and write user light presets"

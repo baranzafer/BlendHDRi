@@ -1,5 +1,9 @@
 # BlendHDRi — HDRI Studio for Blender
 
+> Bu depoda iki eklenti var: **BlendHDRi** (prosedürel HDRI stüdyosu, aşağıda)
+> ve **BlendLights** (Blender'ın gerçek / fiziksel ışıklarını aynı stüdyo
+> mantığıyla yöneten eklenti — [aşağıya bakın](#blendlights--fiziksel-ışık-stüdyosu)).
+
 HDR Light Studio'nun temel iş akışını Blender içine getiren bir eklenti:
 softbox, strip, octabox, ring gibi stüdyo ışıklarını bir **HDRI tuvali** üzerine
 yerleştirirsiniz, sahne aydınlatması anında güncellenir; modelin üzerine
@@ -128,3 +132,111 @@ Blender **4.2 veya üstü** (5.x ile test edildi).
 | `blendhdri/session.py` | Modal araçlar için güvenli oturum (kalp atışı, sıfırlama) |
 | `blendhdri/lightpaint.py` | 3B görünümde tıkla-yerleştir |
 | `blendhdri/ui.py` | Paneller, liste, başlık menüleri |
+
+
+---
+
+# BlendLights — Fiziksel Işık Stüdyosu
+
+BlendHDRi ile aynı çalışma mantığı, ama HDRI yerine **Blender'ın gerçek ışık
+nesnelerini** (Area, Spot, Point, Sun) yönetir. Işıkları hedefin etrafında
+boylam / enlem / mesafe ile konumlandırırsınız, **LightPaint** ile ışığın
+model üzerine düşeceği yeri tıklayarak seçersiniz; Edge Softness, Roundness,
+Center Falloff, gradyan ve görüntü dokusu gibi HDRI Studio'daki ayarlar gerçek
+ışıklara uygulanır.
+
+| Fiziksel area ışıkları: şekil, yumuşaklık, gradyan | LightPaint ile yerleştirilmiş yansımalar | Spot: barn door + gobo dokusu |
+|---|---|---|
+| ![shapes](docs/blendlights_shapes.png) | ![lightpaint](docs/blendlights_lightpaint.png) | ![gobo](docs/blendlights_gobo.png) |
+
+## Özellikler
+
+- **Stüdyo yerleşimi**: her ışık bir *pivot* etrafında döner (hedef nesne,
+  3D imleç, dünya merkezi ya da LightPaint ile seçilen yüzey noktası).
+  *Longitude / Latitude / Rotation / Distance* ile konumlanır ve her zaman
+  pivota bakar. Işığı `G` ile taşırsanız (veya gizmo ile) değerler kendiliğinden
+  güncellenir ve ışık yeniden hedefe döner (*Follow Viewport Edits*). Hedef
+  nesneyi taşıdığınızda ışıklar da onunla gelir.
+- **Görseldeki ayarların hepsi**: Longitude, Latitude, Rotation, Width, Height,
+  Edge Softness, Roundness, Center Falloff, Gradient, Color, Use Temperature,
+  Temperature, Intensity, Opacity.
+  - **Width / Height açısaldır**: ışık uzaklaştıkça fiziksel olarak büyür;
+    böylece öznenin üzerindeki görünüm (yansıma boyutu, gölge yumuşaklığı)
+    değişmez — HDRI'deki gibi.
+  - **Intensity**: Area ışıklarda yüzey parlaklığı (HDRI ışığıyla aynı anlam,
+    mesafeden bağımsız). Spot / Point / Sun'da pivottaki aydınlatma (güneş
+    gücü birimi). Watt değeri mesafe ve boyuttan otomatik hesaplanır.
+  - **Shape**: Rectangle, Round, Octabox, Ring. Roundness 0 kare → 1 elips →
+    2 içe kıvrık (baklava / yıldız). Edge Softness 1'in üstünde çerçevenin
+    dışına taşar (bloom).
+- **Işık dokusu (Cycles)**: şekil, yumuşaklık, merkez düşüşü, gradyan ve
+  isteğe bağlı görüntü (softbox fotoğrafı, pencere…) küçük bir float dokuya
+  rasterize edilir ve ışığın node ağacına (Texture Coordinate ▸ UV ▸ Image ▸
+  Emission) bağlanır. Doku özneden bakıldığında düz ve aynasız görünür.
+  - **Area**: yansımalarda görünür, gölge şeklini belirler. *Visible to Camera*
+    ile ışık yüzeyi render'da görünür; *Spread* petek ızgara (grid) etkisi verir.
+  - **Spot**: şekil ve doku **gobo** gibi yansıtılır (dikdörtgen barn door,
+    octabox ışın, pencere gölgesi…). *Source Size* gölge yumuşaklığını belirler.
+  - Point: *Size* ampul boyutu; Sun: *Angle* güneş diski.
+- **Gradyan**: Linear, Reflected, Radial, Angular; açı, ofset, yayılma, orta
+  nokta, geçiş tipi, iki renk + güç, *Swap* / *Reset*.
+- **LightPaint** (3B görünüm): aktif ışığı modelin üzerine tıklayarak /
+  sürükleyerek yerleştirin.
+  - `1` **Reflection** – ışığın yansıması tıklanan noktada görünür,
+    `2` **Illumination** – ışık yüzeye dik bakar, `3` **Rim** – arkadan kenar ışığı.
+  - *Aim: Clicked Point* ışığı tıklanan noktanın etrafında döndürür (her
+    yüzeyde birebir). *Aim: Studio Target* ışığı hedefin etrafında tutar;
+    yansıma modunda konum, yansıma yine tam tıklanan noktaya düşecek şekilde
+    çözülür.
+  - `Shift` + tık: yeni ışık, `Ctrl` + tekerlek: boyut, `Shift` + tekerlek:
+    döndürme, `Alt` + tekerlek: yoğunluk, `Ctrl` + `Shift` + tekerlek: mesafe,
+    `Esc` / sağ tık: bitir.
+  - Görünümde her ışıktan pivotuna bir nişan çizgisi çizilir (aktif ışık turuncu).
+- **Hazır ışıklar**: Large / Square / Small Softbox, Strip, Horizontal Strip,
+  Octabox, Round Softbox, Beauty Dish, Ring, Overhead Panel, Window, Fade Strip,
+  Reflector Card, Softbox + Grid, Hard Spot, Barn Door Spot, Gobo Projector,
+  Bulb, Sun. *Add ▸ Light ▸ Studio Light* menüsünde de bulunur.
+- **Hazır kurulumlar**: Three Point, Product White, Product Dark, Car Studio,
+  Portrait, Dramatic Rim, Spot Stage, Outdoor Sun (kameraya göre yönlenir).
+- **Mevcut ışıkları yönetme**: *Manage Selected Lights* sıradan ışıkları
+  görünümlerini (konum, boyut, renk, güç) koruyarak devralır. *Release Light*
+  ışığı olduğu gibi bırakır (dokusu .blend'e paketlenir).
+- **Diğer**: Solo, Duplicate, Rotate All, Power Scale, kullanıcı presetleri
+  (ışık ve kurulum; Blender config klasöründe `blendlights/presets.json`).
+  Üretilen dokular kaydederken .blend içine paketlenir; komut satırı / render
+  farm render'ları eklenti olmadan da doğru görünür.
+
+## Kurulum
+
+```bash
+zip -r blendlights.zip blendlights
+```
+
+Blender 4.2+ ▸ *Edit ▸ Preferences ▸ Get Extensions* ▸ sağ üst menü ▸
+**Install from Disk…** ▸ `blendlights.zip`. Panel: 3B görünüm ▸ `N` ▸
+**Light Studio** sekmesi; yönetilen bir ışık seçiliyken *Properties ▸ Light*
+sekmesinde de görünür. BlendHDRi ile aynı anda kurulabilir.
+
+## Kullanım
+
+1. **Target** alanına modelinizi seçin (veya damlalık ile seçili nesneyi atayın).
+2. **Setups** menüsünden bir kurulum yükleyin ya da **Add Light** ile ışık ekleyin.
+3. **LightPaint**'i açın, modelin üzerinde ışığın vurmasını istediğiniz yere
+   tıklayıp sürükleyin; `1/2/3` ile yerleştirme modunu değiştirin.
+4. *Light* panelinde şekil, yumuşaklık, gradyan ve dokuyu ayarlayın;
+   sonucu Cycles *Rendered* görünümünde canlı izleyin.
+
+> Not: Light node dokuları Cycles'a özgüdür. EEVEE'de konum, boyut, renk ve
+> güç çalışır; şekil / yumuşaklık / gradyan / doku görünmez (panelde uyarı çıkar).
+
+| Dosya | İçerik |
+|---|---|
+| `blendlights/core.py` | Saf numpy/matematik: yerleşim, LightPaint yönleri, ışık dokusu, güç formülleri |
+| `blendlights/props.py` | Işık (Object üzerinde) ve sahne özellikleri |
+| `blendlights/sync.py` | Ayarları gerçek ışıklara yazma, doku üretimi, handler'lar |
+| `blendlights/lightpaint.py` | 3B görünümde tıkla-yerleştir modal aracı |
+| `blendlights/overlay.py` | Nişan çizgileri (GPU overlay) |
+| `blendlights/ops.py` | Ekle / sil / çoğalt / kurulum / devral / preset operatörleri |
+| `blendlights/presets.py` | Hazır ışıklar, kurulumlar, kullanıcı presetleri |
+| `blendlights/ui.py` | Paneller, liste, menüler |
+| `blendlights/session.py` | Modal araçlar için güvenli oturum (BlendHDRi'den) |
