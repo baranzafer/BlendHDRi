@@ -9,7 +9,7 @@ centre falloff, gradients and image textures (Cycles light node textures).
 bl_info = {
     "name": "BlendLights - Physical Light Studio",
     "author": "BlendHDRi contributors",
-    "version": (0, 2, 0),
+    "version": (0, 2, 1),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar (N) > Light Studio",
     "description": "Studio control of physical lights: LightPaint, softness, gradients, textures",

@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "blendlights"
-version = "0.2.0"
+version = "0.2.1"
 name = "BlendLights - Physical Light Studio"
 tagline = "Studio control of real lights: LightPaint, soft edges, gradients, textures"
 maintainer = "BlendHDRi contributors"

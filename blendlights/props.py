@@ -125,7 +125,7 @@ class LightStudioLight(PropertyGroup):
         name="Edge Softness",
         description=("Soft edge width. 0 = hard edge, 1 = fades all the way from the centre, "
                      "above 1 the light blooms far beyond its outline (up to 10)"),
-        default=0.1, min=0.0, max=10.0, soft_max=5.0, update=_tex_changed)
+        default=0.1, min=0.0, max=10.0, soft_max=3.0, update=_tex_changed)
     roundness: FloatProperty(
         name="Roundness",
         description=("Rectangle corners: 0 = square, 0.5 = rounded corners, 1 = ellipse, "
@@ -139,7 +139,7 @@ class LightStudioLight(PropertyGroup):
         description=("Brightness change from the centre to the edge, in stops. "
                      "+3 = edge 3 stops (8x) darker (hot spot), -3 = centre 3 stops darker "
                      "(bright rim)"),
-        default=0.0, min=-12.0, max=20.0, soft_min=-6.0, soft_max=10.0, update=_tex_changed)
+        default=0.0, min=-12.0, max=20.0, soft_min=-4.0, soft_max=8.0, update=_tex_changed)
 
     # Gradient ---------------------------------------------------------------
     gradient_type: EnumProperty(

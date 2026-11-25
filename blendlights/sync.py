@@ -294,6 +294,8 @@ def _set_nodes(data, textured):
                 if link.from_node == img_node:
                     nt.links.remove(link)
             emission.inputs['Color'].default_value = (1.0, 1.0, 1.0, 1.0)
+            if img_node.image is not None:
+                img_node.image = None  # unused texture: do not keep / pack it
         return
     uv = nodes.get(UV_NODE)
     if uv is None:
@@ -315,27 +317,49 @@ def _set_nodes(data, textured):
         emission.inputs['Strength'].default_value = 1.0
 
 
+SLOTS = ("A", "B")
+SYNC_TEXTURE_PIXELS = 512 * 512  # textures up to this size update instantly
+
+
+def _slot_name(obj, slot):
+    return f".LS {obj.name} {slot}"
+
+
+def _owned(img, obj):
+    return img is not None and img.get(OWNER_KEY) == obj.name
+
+
 def texture_image(obj, res, create=True):
+    """Return (node, image to write next).
+
+    Every light has two texture images and they take turns. Cycles' Rendered
+    view does not notice an image whose pixels changed in place, so the old
+    texture stayed on screen while the light's size was already new (an
+    exaggerated, "stuck" look). Swapping the image in the node is a real
+    update that every engine picks up.
+    """
     data = obj.data
     nt = data.node_tree
     node = nt.nodes.get(IMG_NODE) if nt else None
     if node is None:
         return None, None
-    img = node.image
-    if img is not None and (img.get(OWNER_KEY) != obj.name or tuple(img.size) != (res, res)):
-        old = img
+    current = node.image
+    slot = "B" if (_owned(current, obj) and current.name == _slot_name(obj, "A")) else "A"
+    name = _slot_name(obj, slot)
+    img = bpy.data.images.get(name)
+    if img is not None and not _owned(img, obj):
         img = None
-        node.image = None
-        if old.users == 0 and old.get(OWNER_KEY) == obj.name:
-            bpy.data.images.remove(old)
+        name = None
     if img is None and create:
-        img = bpy.data.images.new(f".LS {obj.name}", res, res, alpha=False, float_buffer=True)
+        img = bpy.data.images.new(name or _slot_name(obj, slot), res, res,
+                                  alpha=False, float_buffer=True)
         img[OWNER_KEY] = obj.name
         try:
             img.colorspace_settings.name = 'Non-Color'
         except TypeError:
             pass
-        node.image = img
+    if img is not None and tuple(img.size) != (res, res):
+        img.scale(res, res)
     return node, img
 
 
@@ -344,23 +368,38 @@ def update_texture(obj, force=False):
         return
     ls = obj.light_studio
     shape = shape_data(ls)
-    textured, kx, ky, _e = _layout(ls, shape)
+    textured, kx, ky, extent = _layout(ls, shape)
     if not textured:
         _tex_keys.pop(obj.name, None)
         return
-    res = int(ls.texture_res)
-    # Very soft lights bloom far outside their outline: keep the outline sharp.
-    res = min(2048, int(res * max(1.0, _e / 1.5)) // 8 * 8)
+    res = texture_resolution(ls, extent)
+    key = (shape.key(), round(kx, 6), round(ky, 6), res)
+    nt = obj.data.node_tree
+    node = nt.nodes.get(IMG_NODE) if nt else None
+    if (not force and _tex_keys.get(obj.name) == key and node is not None
+            and _owned(node.image, obj)):
+        return
     node, img = texture_image(obj, res)
     if img is None:
-        return
-    key = (shape.key(), round(kx, 6), round(ky, 6), res, img.name)
-    if not force and _tex_keys.get(obj.name) == key:
         return
     arr = core.light_texture(shape, res, kx, ky)
     img.pixels.foreach_set(arr.ravel())
     img.update()
+    if img.packed_file is not None:
+        img.pack()  # keep the packed copy in step, it is what a reload uses
+    node.image = img
+    for idb in (img, nt, obj.data):
+        try:
+            idb.update_tag()
+        except Exception:
+            pass
     _tex_keys[obj.name] = key
+
+
+def texture_resolution(ls, extent):
+    res = int(ls.texture_res)
+    # Very soft lights bloom far outside their outline: keep the outline sharp.
+    return min(2048, int(res * max(1.0, extent / 1.5)) // 8 * 8)
 
 
 # ---------------------------------------------------------------------------
@@ -374,9 +413,19 @@ def request(obj, texture=True):
     except Exception:
         traceback.print_exc()
         return
-    if textured or texture:
-        _tex_pending.add(obj.name)
-        _start_timer()
+    if textured:
+        ls = obj.light_studio
+        _textured, _kx, _ky, extent = _layout(ls, shape_data(ls))
+        if texture_resolution(ls, extent) ** 2 <= SYNC_TEXTURE_PIXELS:
+            # Update the texture together with the light's size and power so
+            # the two never disagree on screen.
+            try:
+                update_texture(obj)
+            except Exception:
+                traceback.print_exc()
+        else:
+            _tex_pending.add(obj.name)
+            _start_timer()
     from . import overlay
     overlay.tag_redraw()
 

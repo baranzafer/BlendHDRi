@@ -188,7 +188,7 @@ class ShapeData:
 BLOOM_PER_UNIT = 0.75
 # Soft edges and centre falloff are shaped in photographic stops, so they stay
 # visible on bright lights (a linear fade is mostly clipped to white on screen).
-SOFT_STOPS = 7.0
+SOFT_STOPS = 5.0
 
 OCT_ANGLES = [k * math.pi / 4.0 + math.pi / 8.0 for k in range(8)]
 OCT_NORM = 1.0 / math.cos(math.pi / 8.0)
